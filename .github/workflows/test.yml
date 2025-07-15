@@ -220,6 +220,19 @@ jobs:
       - run: zig build unittest
       - run: zig build functionaltest
 
+  zig-build-cross:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    name: build using zig build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+         version: 0.14.1
+      - run: sudo apt-get install -y inotify-tools
+      - run: zig build nvim_bin -Dluajit -Dtarget=aarch64-linux
+      - run: zig build nvim_bin -Dluajit -Dtarget=aarch64-linux-gnu
+
   windows:
     uses: ./.github/workflows/test_windows.yml
 

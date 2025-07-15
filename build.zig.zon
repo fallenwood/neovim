@@ -5,9 +5,9 @@
     .minimum_zig_version = "0.14.0",
 
     .dependencies = .{
-        .lua_wrapper = .{
-            .url = "git+https://github.com/natecraddock/ziglua#7bfb3c2b87220cdc89ef01cc99a200dad7a28e50",
-            .hash = "lua_wrapper-0.1.0-OyMC27fOBAAU3E2ueB-EWGSgsuCFQZL83pT0nQJ1ufOI",
+        .zlua = .{
+            .url = "git+https://github.com/natecraddock/ziglua#6a11845db821b954ad594b1a68e1ac0206fcfa24",
+            .hash = "zlua-0.1.0-hGRpC3YpBQAKyV7X0okDIPSgom9UyqiQeP9WTemXfGz9",
         },
         .lpeg = .{
             .url = "https://github.com/neovim/deps/raw/d495ee6f79e7962a53ad79670cb92488abe0b9b4/opt/lpeg-1.1.0.tar.gz",
