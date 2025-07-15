@@ -230,8 +230,8 @@ jobs:
         with:
          version: 0.14.1
       - run: sudo apt-get install -y inotify-tools
-      - run: zig build nvim_bin -Dluajit -Dtarget=aarch64-linux
-      - run: zig build nvim_bin -Dluajit -Dtarget=aarch64-linux-gnu
+      - run: zig build nvim_bin -Dcross -Dluajit -Dtarget=aarch64-linux
+      - run: zig build nvim_bin -Dcross -Dluajit -Dtarget=aarch64-linux-gnu
 
   windows:
     uses: ./.github/workflows/test_windows.yml
