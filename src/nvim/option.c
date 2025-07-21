@@ -1593,13 +1593,13 @@ static char *option_expand(OptIndex opt_idx, const char *val)
   }
 
   // Expanding this with NameBuff, expand_env() must not be passed IObuff.
-  // Escape spaces when expanding 'tags', they are used to separate file
-  // names.
+  // Escape spaces when expanding 'tags' or 'path', they are used to separate
+  // file names.
   // For 'spellsuggest' expand after "file:".
-  expand_env_esc(val, NameBuff, MAXPATHL,
-                 (char **)options[opt_idx].var == &p_tags, false,
-                 (char **)options[opt_idx].var == &p_sps ? "file:"
-                                                         : NULL);
+  char **var = (char **)options[opt_idx].var;
+  bool esc = var == &p_tags || var == &p_path;
+  expand_env_esc(val, NameBuff, MAXPATHL, esc, false,
+                 (char **)options[opt_idx].var == &p_sps ? "file:" : NULL);
   if (strcmp(NameBuff, val) == 0) {   // they are the same
     return NULL;
   }
@@ -4478,6 +4478,8 @@ void *get_varp_scope_from(vimoption_T *p, int opt_flags, buf_T *buf, win_T *win)
       return &(buf->b_p_ise);
     case kOptDictionary:
       return &(buf->b_p_dict);
+    case kOptDiffanchors:
+      return &(buf->b_p_dia);
     case kOptThesaurus:
       return &(buf->b_p_tsr);
     case kOptThesaurusfunc:
@@ -4565,6 +4567,8 @@ void *get_varp_from(vimoption_T *p, buf_T *buf, win_T *win)
     return *buf->b_p_ise != NUL ? &(buf->b_p_ise) : p->var;
   case kOptDictionary:
     return *buf->b_p_dict != NUL ? &(buf->b_p_dict) : p->var;
+  case kOptDiffanchors:
+    return *buf->b_p_dia != NUL ? &(buf->b_p_dia) : p->var;
   case kOptThesaurus:
     return *buf->b_p_tsr != NUL ? &(buf->b_p_tsr) : p->var;
   case kOptThesaurusfunc:
@@ -5258,6 +5262,7 @@ void buf_copy_options(buf_T *buf, int flags)
       buf->b_p_cot = empty_string_option;
       buf->b_cot_flags = 0;
       buf->b_p_dict = empty_string_option;
+      buf->b_p_dia = empty_string_option;
       buf->b_p_tsr = empty_string_option;
       buf->b_p_ise = empty_string_option;
       buf->b_p_tsrfu = empty_string_option;

@@ -626,6 +626,11 @@ func Test_getcompletion()
   let l = getcompletion('not', 'mapclear')
   call assert_equal([], l)
 
+  let l = getcompletion('', 'retab')
+  call assert_true(index(l, '-indentonly') >= 0)
+  let l = getcompletion('not', 'retab')
+  call assert_equal([], l)
+
   let l = getcompletion('.', 'shellcmd')
   call assert_equal(['./', '../'], filter(l, 'v:val =~ "\\./"'))
   call assert_equal(-1, match(l[2:], '^\.\.\?/$'))
@@ -682,6 +687,8 @@ func Test_getcompletion()
   call assert_equal([], l)
   let l = getcompletion('autocmd BufEnter * map <bu', 'cmdline')
   call assert_equal(['<buffer>'], l)
+  let l = getcompletion('retab! ', 'cmdline')
+  call assert_true(index(l, '-indentonly') >= 0)
 
   func T(a, c, p)
     let g:cmdline_compl_params = [a:a, a:c, a:p]
@@ -4710,6 +4717,55 @@ func Test_pum_scroll_noselect()
 
   call term_sendkeys(buf, "\<esc>")
   call StopVimInTerminal(buf)
+endfunc
+
+" CmdlineChanged shouldn't trigger if command-line text is unchanged
+func Test_cmdline_changed()
+  let g:cmdchg_count = 0
+  let g:cmdprefix = ''
+  augroup test_CmdlineAugrp | autocmd!
+    autocmd CmdlineChanged * if getcmdline() =~ g:cmdprefix | let g:cmdchg_count += 1 | endif
+  augroup END
+
+  new
+  set wildmenu
+  set wildmode=full
+
+  let g:cmdprefix = 'echomsg'
+  let g:cmdchg_count = 0
+  call feedkeys(":echomsg\<Tab>", "tx")
+  call assert_equal(1, g:cmdchg_count) " once only for 'g', not again for <Tab>
+
+  let g:cmdchg_count = 0
+  let g:cmdprefix = 'echo'
+  call feedkeys(":ech\<Tab>", "tx")
+  call assert_equal(1, g:cmdchg_count) " (once for 'h' and) once for 'o'
+
+  set wildmode=noselect,full
+  let g:cmdchg_count = 0
+  let g:cmdprefix = 'ech'
+  call feedkeys(":ech\<Tab>", "tx")
+  call assert_equal(1, g:cmdchg_count) " once for 'h', not again for <tab>
+
+  command! -nargs=+ -complete=custom,TestComplete Test echo
+
+  func TestComplete(arglead, cmdline, cursorpos)
+    return "AbC"
+  endfunc
+
+  set wildoptions=fuzzy wildmode=full
+  let g:cmdchg_count = 0
+  let g:cmdprefix = 'Test \(AbC\|abc\)'
+  call feedkeys(":Test abc\<Tab>", "tx")
+  call assert_equal(2, g:cmdchg_count) " once for 'c', again for 'AbC'
+
+  bw!
+  set wildmode& wildmenu& wildoptions&
+  augroup test_CmdlineAugrp | autocmd! | augroup END
+  unlet g:cmdchg_count
+  unlet g:cmdprefix
+  delfunc TestComplete
+  delcommand Test
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab
