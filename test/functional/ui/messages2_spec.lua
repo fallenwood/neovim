@@ -22,8 +22,10 @@ describe('messages2', function()
     command('echo "foo\nbar"')
     screen:expect([[
       ^                                                     |
-      {1:~                                                    }|*12
-      foo[+1]                                              |
+      {1:~                                                    }|*10
+      {3:─────────────────────────────────────────────────────}|
+      foo                                                  |
+      bar                                                  |
     ]])
     command('set ruler showcmd noshowmode')
     feed('g<lt>')
@@ -47,14 +49,14 @@ describe('messages2', function()
       bar                                                  |
       baz                                                  |
       bar                                                  |
-      baz[+23]                                             |
+      baz [+23]                                            |
     ]])
     -- Any key press resizes the cmdline and updates the spill indicator.
     feed('j')
     screen:expect([[
       ^                                                     |
       {1:~                                                    }|*12
-      foo[+29]                            0,0-1         All|
+      foo [+29]                           0,0-1         All|
     ]])
     command('echo "foo"')
     -- New message clears spill indicator.
@@ -177,14 +179,14 @@ describe('messages2', function()
       {16::}^                                                    |
     ]])
     -- Highlighter disabled when message is moved to cmdline #34884
-    feed('ls<CR>')
+    feed([[echo "bar\n"->repeat(&lines)<CR>]])
     screen:expect([[
       ^                                                     |
-      {1:~                                                    }|*8
+      {1:~                                                    }|*4
       {3:─────────────────────────────────────────────────────}|
       foo                                                  |
-                                                           |
-        1 %a   "[No Name]"                    line 1       |
+      bar                                                  |*5
+      bar [+8]                                             |
     ]])
   end)
 
@@ -198,5 +200,38 @@ describe('messages2', function()
     -- Would trigger changed dialog if 'buftype' was not restored.
     command('%bdelete')
     screen:expect_unchanged()
+  end)
+
+  it('showmode does not overwrite important messages', function()
+    command('set readonly')
+    feed('i')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      {19:W10: Warning: Changing a readonly file}               |
+    ]])
+    feed('<Esc>Qi')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      {9:E354: Invalid register name: '^@'}                    |
+    ]])
+  end)
+
+  it('hit-enter prompt does not error for invalid window #35095', function()
+    command('echo "foo\nbar"')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*10
+      {3:─────────────────────────────────────────────────────}|
+      foo                                                  |
+      bar                                                  |
+    ]])
+    feed('<C-w>o')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      foo [+1]                                             |
+    ]])
   end)
 end)

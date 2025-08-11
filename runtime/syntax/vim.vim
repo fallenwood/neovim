@@ -99,7 +99,7 @@ syn match	vimUserAutoEvent	contained	"\<\h\w*\>"	skipwhite nextgroup=vimUserAuto
 
 " Highlight commonly used Groupnames {{{2
 " GEN_SYN_VIM: vimGroup, START_STR='syn keyword vimGroup contained', END_STR=''
-syn keyword vimGroup contained Added Boolean Changed Character Comment Conditional Constant Debug Define Delimiter Error Exception Float Function Identifier Ignore Include Keyword Label Macro Number Operator PreCondit PreProc Removed Repeat Special SpecialChar SpecialComment Statement StorageClass String Structure Tag Todo Type Typedef Underlined
+syn keyword vimGroup contained Added Bold BoldItalic Boolean Changed Character Comment Conditional Constant Debug Define Delimiter Error Exception Float Function Identifier Ignore Include Italic Keyword Label Macro Number Operator PreCondit PreProc Removed Repeat Special SpecialChar SpecialComment Statement StorageClass String Structure Tag Todo Type Typedef Underlined
 
 " Default highlighting groups {{{2
 " GEN_SYN_VIM: vimHLGroup, START_STR='syn keyword vimHLGroup contained', END_STR=''
@@ -1365,9 +1365,20 @@ syn match	vimMapLhs	contained	"\%(.\|\S\)\+"		contains=vimCtrlChar,vimNotation,
 syn match	vimMapLhs	contained	"\%(.\|\S\)\+\ze\s*$"	contains=vimCtrlChar,vimNotation,vimMapLeader skipwhite skipnl nextgroup=vimMapRhsContinue
 syn match	vimMapBang	contained	"\a\@1<=!"		skipwhite nextgroup=vimMapMod,vimMapLhs
 syn match	vimMapMod	contained	"\%#=1<\%(buffer\|expr\|nowait\|script\|silent\|special\|unique\)\+>" contains=vimMapModKey,vimMapModErr skipwhite nextgroup=vimMapMod,vimMapLhs
-syn region	vimMapRhs	contained	start="\S" 	        skip=+\\|\|\@1<=|\|\n\s*\\\|\n\s*"\\ + end="|" end="$" contains=@vimContinue,vimCtrlChar,vimNotation,vimMapLeader skipnl nextgroup=vimMapRhsContinue
-" assume a continuation comment introduces the RHS
-syn region	vimMapRhsContinue	contained	start=+^\s*\%(\\\|"\\ \)+ skip=+\\|\|\@1<=|\|\n\s*\\\|\n\s*"\\ + end="|" end="$" contains=@vimContinue,vimCtrlChar,vimNotation,vimMapLeader
+syn region	vimMapRhs	contained
+      \ start="\S"
+      \ skip=+\\|\|\@1<=|\|\n\s*\%(\\\|["#]\\ \)+
+      \ end="\ze|"
+      \ end="$"
+      \ nextgroup=vimCmdSep
+      \ contains=@vimContinue,vimCtrlChar,vimNotation,vimMapLeader
+syn region	vimMapRhsContinue	contained
+      \ start=+^\s*\%(\\\|["#]\\ \)+
+      \ skip=+\\|\|\@1<=|\|\n\s*\%(\\\|["#]\\ \)+
+      \ end="\ze|"
+      \ end="$"
+      \ nextgroup=vimCmdSep
+      \ contains=@vimContinue,vimCtrlChar,vimNotation,vimMapLeader
 syn match	vimMapLeader	contained	"\%#=1\c<\%(local\)\=leader>"	contains=vimMapLeaderKey
 syn keyword	vimMapModKey	contained	buffer expr nowait script silent special unique
 syn case ignore

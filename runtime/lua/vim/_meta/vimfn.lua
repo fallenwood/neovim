@@ -873,15 +873,22 @@ function vim.fn.charcol(expr, winid) end
 --- @return integer
 function vim.fn.charidx(string, idx, countcc, utf16) end
 
---- Change the current working directory to {dir}.  The scope of
---- the directory change depends on the directory of the current
---- window:
----   - If the current window has a window-local directory
----     (|:lcd|), then changes the window local directory.
----   - Otherwise, if the current tabpage has a local
----     directory (|:tcd|) then changes the tabpage local
----     directory.
----   - Otherwise, changes the global directory.
+--- Changes the current working directory to {dir}.  The scope of
+--- the change is determined as follows:
+--- If {scope} is not present, the current working directory is
+--- changed to the scope of the current directory:
+---     - If the window local directory (|:lcd|) is set, it
+---       changes the current working directory for that scope.
+---     - Otherwise, if the tab page local directory (|:tcd|) is
+---       set, it changes the current directory for that scope.
+---     - Otherwise, changes the global directory for that scope.
+---
+--- If {scope} is present, changes the current working directory
+--- for the specified scope:
+---     "window"  Changes the window local directory.  |:lcd|
+---     "tabpage"  Changes the tab page local directory.  |:tcd|
+---     "global"  Changes the global directory.  |:cd|
+---
 --- {dir} must be a String.
 --- If successful, returns the previous working directory.  Pass
 --- this to another chdir() to restore the directory.
@@ -896,8 +903,9 @@ function vim.fn.charidx(string, idx, countcc, utf16) end
 --- <
 ---
 --- @param dir string
+--- @param scope? string
 --- @return string
-function vim.fn.chdir(dir) end
+function vim.fn.chdir(dir, scope) end
 
 --- Get the amount of indent for line {lnum} according the
 --- |C-indenting| rules, as with 'cindent'.
@@ -1855,35 +1863,35 @@ function vim.fn.exp(expr) end
 --- done like for the |cmdline-special| variables with their
 --- associated modifiers.  Here is a short overview:
 ---
----   %    current file name
----   #    alternate file name
----   #n    alternate file name n
----   <cfile>    file name under the cursor
----   <afile>    autocmd file name
----   <abuf>    autocmd buffer number (as a String!)
----   <amatch>  autocmd matched name
+---   %    Current file name
+---   #    Alternate file name
+---   #n    Alternate file name n
+---   <cfile>    File name under the cursor
+---   <afile>    Autocmd file name
+---   <abuf>    Autocmd buffer number (as a String!)
+---   <amatch>  Autocmd matched name
 ---   <cexpr>    C expression under the cursor
----   <sfile>    deprecated, use <script> or <stack>
----   <slnum>    sourced script line number or function
+---   <sfile>    Deprecated, use <script> or <stack>
+---   <slnum>    Sourced script line number or function
 ---       line number
----   <sflnum>  script file line number, also when in
+---   <sflnum>  Script file line number, also when in
 ---       a function
 ---   <SID>    "<SNR>123_"  where "123" is the
 ---       current script ID  |<SID>|
----   <script>  sourced script file, or script file
+---   <script>  Sourced script file, or script file
 ---       where the current function was defined.
----       Use |debug.getinfo()| in Lua scripts.
----   <stack>    call stack
----   <cword>    word under the cursor
+---       For Lua see |lua-script-location|.
+---   <stack>    Call stack
+---   <cword>    Word under the cursor
 ---   <cWORD>    WORD under the cursor
----   <client>  the {clientid} of the last received
+---   <client>  The {clientid} of the last received
 ---       message
 --- Modifiers:
----   :p    expand to full path
----   :h    head (last path component removed)
----   :t    tail (last path component only)
----   :r    root (one extension removed)
----   :e    extension only
+---   :p    Expand to full path
+---   :h    Head (last path component removed)
+---   :t    Tail (last path component only)
+---   :r    Root (one extension removed)
+---   :e    Extension only
 ---
 --- Example: >vim
 ---   let &tags = expand("%:p:h") .. "/tags"
@@ -3093,13 +3101,13 @@ function vim.fn.getcmdwintype() end
 --- customlist,{func} custom completion, defined via {func}
 --- diff_buffer  |:diffget| and |:diffput| completion
 --- dir    directory names
---- dir_in_path  directory names in |'cdpath'|
+--- dir_in_path  directory names in 'cdpath'
 --- environment  environment variable names
 --- event    autocommand events
 --- expression  Vim expression
 --- file    file and directory names
---- file_in_path  file and directory names in |'path'|
---- filetype  filetype names |'filetype'|
+--- file_in_path  file and directory names in 'path'
+--- filetype  filetype names 'filetype'
 --- filetypecmd  |:filetype| suboptions
 --- function  function name
 --- help    help subjects
@@ -3119,7 +3127,7 @@ function vim.fn.getcmdwintype() end
 --- shellcmd  Shell command
 --- shellcmdline  Shell command line with filename arguments
 --- sign    |:sign| suboptions
---- syntax    syntax file names |'syntax'|
+--- syntax    syntax file names 'syntax'
 --- syntime    |:syntime| suboptions
 --- tag    tags
 --- tag_listfiles  tags, file names
@@ -7964,12 +7972,20 @@ function vim.fn.searchpos(pattern, flags, stopline, timeout, skip) end
 
 --- Returns a list of server addresses, or empty if all servers
 --- were stopped. |serverstart()| |serverstop()|
+---
+--- The optional argument {opts} is a Dict and supports the following items:
+---
+---   peer  : If |TRUE|, servers not started by |serverstart()|
+---           will also be returned. (default: |FALSE|)
+---           Not supported on Windows yet.
+---
 --- Example: >vim
 ---   echo serverlist()
 --- <
 ---
+--- @param opts? table
 --- @return string[]
-function vim.fn.serverlist() end
+function vim.fn.serverlist(opts) end
 
 --- Opens a socket or named pipe at {address} and listens for
 --- |RPC| messages. Clients can send |API| commands to the
@@ -9808,7 +9824,7 @@ function vim.fn.strptime(format, timestring) end
 function vim.fn.strridx(haystack, needle, start) end
 
 --- The result is a String, which is {string} with all unprintable
---- characters translated into printable characters |'isprint'|.
+--- characters translated into printable characters 'isprint'.
 --- Like they are shown in a window.  Example: >vim
 ---   echo strtrans(\@a)
 --- <This displays a newline in register a as "^\@" instead of
@@ -10302,7 +10318,7 @@ function vim.fn.tagfiles() end
 --- Refer to |tag-regexp| for more information about the tag
 --- search regular expression pattern.
 ---
---- Refer to |'tags'| for information about how the tags file is
+--- Refer to 'tags' for information about how the tags file is
 --- located by Vim. Refer to |tags-file-format| for the format of
 --- the tags file generated by the different ctags tools.
 ---
@@ -10620,6 +10636,8 @@ function vim.fn.undofile(name) end
 --- @return vim.fn.undotree.ret
 function vim.fn.undotree(buf) end
 
+--- Note: Prefer |vim.list.unique()| in Lua.
+---
 --- Remove second and succeeding copies of repeated adjacent
 --- {list} items in-place.  Returns {list}.  If you want a list
 --- to remain unmodified make a copy first: >vim
@@ -10697,7 +10715,7 @@ function vim.fn.values(dict) end
 --- last character.  When "off" is omitted zero is used.  When
 --- Virtual editing is active in the current mode, a position
 --- beyond the end of the line can be returned.  Also see
---- |'virtualedit'|
+--- 'virtualedit'
 ---
 --- If {list} is present and non-zero then virtcol() returns a
 --- List with the first and last screen position occupied by the
@@ -10812,6 +10830,37 @@ function vim.fn.wait(timeout, condition, interval) end
 ---
 --- @return any
 function vim.fn.wildmenumode() end
+
+--- Start wildcard expansion in the command-line, using the
+--- behavior defined by the 'wildmode' and 'wildoptions' settings.
+--- See |cmdline-completion|.
+---
+--- This function also enables completion in search patterns such
+--- as |/|, |?|, |:s|, |:g|, |:v| and |:vimgrep|.
+---
+--- Unlike pressing 'wildchar' manually, this function does not
+--- produce a beep when no matches are found and generally
+--- operates more quietly.  This makes it suitable for triggering
+--- completion automatically, such as from an |:autocmd|.
+---         *cmdline-autocompletion*
+--- Example: To make the completion menu pop up automatically as
+--- you type on the command line, use: >vim
+---   autocmd CmdlineChanged [:/\?] call wildtrigger()
+---   set wildmode=noselect:lastused,full wildoptions=pum
+--- <
+--- To retain normal history navigation (up/down keys): >vim
+---   cnoremap <Up>   <C-U><Up>
+---   cnoremap <Down> <C-U><Down>
+--- <
+--- To set an option specifically when performing a search, e.g.
+--- to set 'pumheight': >vim
+---   autocmd CmdlineEnter [/\?] set pumheight=8
+---   autocmd CmdlineLeave [/\?] set pumheight&
+--- <
+--- Return value is always 0.
+---
+--- @return number
+function vim.fn.wildtrigger() end
 
 --- Like `execute()` but in the context of window {id}.
 --- The window will temporarily be made the current window,

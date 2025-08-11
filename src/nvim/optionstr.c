@@ -43,6 +43,7 @@
 #include "nvim/pos_defs.h"
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
+#include "nvim/shada.h"
 #include "nvim/spell.h"
 #include "nvim/spellfile.h"
 #include "nvim/spellsuggest.h"
@@ -114,6 +115,15 @@ char *illegal_char(char *errbuf, size_t errbuflen, int c)
   }
   vim_snprintf(errbuf, errbuflen, _("E539: Illegal character <%s>"),
                transchar(c));
+  return errbuf;
+}
+
+static char *illegal_char_after_chr(char *errbuf, size_t errbuflen, int c)
+{
+  if (errbuf == NULL) {
+    return "";
+  }
+  vim_snprintf(errbuf, errbuflen, _(e_illegal_character_after_chr), c);
   return errbuf;
 }
 
@@ -901,9 +911,8 @@ const char *did_set_complete(optset_T *args)
     }
     if (char_before != NUL) {
       if (args->os_errbuf != NULL) {
-        vim_snprintf(args->os_errbuf, args->os_errbuflen,
-                     _(e_illegal_character_after_chr), char_before);
-        return args->os_errbuf;
+        return illegal_char_after_chr(args->os_errbuf, args->os_errbuflen,
+                                      char_before);
       }
       return NULL;
     }
@@ -911,6 +920,10 @@ const char *did_set_complete(optset_T *args)
     while (*p == ',' || *p == ' ') {
       p++;
     }
+  }
+
+  if (set_cpt_callbacks(args) != OK) {
+    return illegal_char_after_chr(args->os_errbuf, args->os_errbuflen, 'F');
   }
   return NULL;
 }

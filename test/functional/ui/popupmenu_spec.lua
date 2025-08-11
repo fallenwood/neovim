@@ -3751,7 +3751,7 @@ describe('builtin popupmenu', function()
         ]])
       end
 
-      -- not rightleft on the cmdline
+      -- oldtest: Test_wildmenu_pum_rightleft()
       feed('<esc>:sign ')
       if multigrid then
         screen:expect([[
@@ -3771,9 +3771,8 @@ describe('builtin popupmenu', function()
           :sign ^                          |
         ]])
       end
-
-      -- oldtest: Test_wildmenu_pum_rightleft()
-      feed('<tab>')
+      -- Not rightleft on the cmdline.
+      feed('<Tab>')
       if multigrid then
         screen:expect({
           grid = [[
@@ -3808,6 +3807,15 @@ describe('builtin popupmenu', function()
           :sign define^                    |
         ]])
       end
+
+      -- Behavior is the same when using 'keymap'.
+      feed('<Esc>')
+      command('set keymap=dvorak')
+      -- ";gul" -> "sign" when using Dvorak keymap.
+      feed(':<C-^>;gul <Tab>')
+      screen:expect_unchanged(true)
+      feed('<Esc>')
+      command('set keymap&')
     end)
 
     it('with rightleft vsplits', function()
@@ -6445,10 +6453,10 @@ describe('builtin popupmenu', function()
         menu PopUp.baz :let g:menustr = 'baz'<CR>
       ]])
 
-      --- @param state string|test.function.ui.screen.Expect
+      --- @param state string|test.functional.ui.screen.Expect
       --- @param str string
       --- @param repl string
-      --- @return string|test.function.ui.screen.Expect
+      --- @return string|test.functional.ui.screen.Expect
       local function screen_replace(state, str, repl)
         if type(state) == 'string' then
           local new_state = state:gsub(vim.pesc(str), vim.pesc(repl))
@@ -6461,7 +6469,7 @@ describe('builtin popupmenu', function()
         return new_state
       end
 
-      local no_sel_screen ---@type string|test.function.ui.screen.Expect
+      local no_sel_screen ---@type string|test.functional.ui.screen.Expect
       if multigrid then
         api.nvim_input_mouse('right', 'press', '', 2, 0, 4)
         no_sel_screen = {

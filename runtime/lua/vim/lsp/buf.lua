@@ -404,17 +404,19 @@ function M.signature_help(config)
         return
       end
 
-      local sfx = total > 1
-          and string.format(' (%d/%d)%s', idx, total, can_cycle and ' (<C-s> to cycle)' or '')
-        or ''
-      local title = string.format('Signature Help: %s%s', client.name, sfx)
-      if config.border then
-        config.title = title
-      else
-        table.insert(lines, 1, '# ' .. title)
-        if hl then
-          hl[1] = hl[1] + 1
-          hl[3] = hl[3] + 1
+      -- Show title only if there are multiple clients or multiple signatures.
+      if total > 1 then
+        local sfx = total > 1
+            and string.format(' (%d/%d)%s', idx, total, can_cycle and ' (<C-s> to cycle)' or '')
+          or ''
+        config.title = config.title or string.format('Signature Help: %s%s', client.name, sfx)
+        -- If no border is set, render title inside the window.
+        if not (config.border or vim.o.winborder ~= '') then
+          table.insert(lines, 1, '# ' .. config.title)
+          if hl then
+            hl[1] = hl[1] + 1
+            hl[3] = hl[3] + 1
+          end
         end
       end
 
@@ -811,7 +813,7 @@ function M.references(context, opts)
 
     for client_id, res in pairs(results) do
       local client = assert(lsp.get_client_by_id(client_id))
-      local items = util.locations_to_items(res.result, client.offset_encoding)
+      local items = util.locations_to_items(res.result or {}, client.offset_encoding)
       vim.list_extend(all_items, items)
     end
 

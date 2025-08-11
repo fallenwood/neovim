@@ -1,3 +1,6 @@
+--- @brief This module provides LSP support for highlighting color references in a document.
+--- Highlighting is enabled by default.
+
 local api = vim.api
 local lsp = vim.lsp
 local util = lsp.util
@@ -282,15 +285,6 @@ function M.is_enabled(bufnr)
 end
 
 --- Enables document highlighting from the given language client in the given buffer.
----
---- You can enable document highlighting when a client attaches to a buffer as follows:
---- ```lua
---- vim.api.nvim_create_autocmd('LspAttach', {
----   callback = function(args)
----     vim.lsp.document_color.enable(true, args.buf)
----   end
---- })
---- ```
 ---
 --- To "toggle", pass the inverse of `is_enabled()`:
 ---

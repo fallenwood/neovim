@@ -15,6 +15,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/ui.h"
+#include "nvim/api/vimscript.h"
 #include "nvim/arglist.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
@@ -3024,13 +3025,16 @@ static void append_command(const char *cmd)
 }
 
 /// Return true and set "*idx" if "p" points to a one letter command.
-/// - The 'k' command can directly be followed by any character.
+/// - The 'k' command can directly be followed by any character
+///          but :keepa[lt] is another command, as are :keepj[umps],
+///          :kee[pmarks] and :keepp[atterns].
 /// - The 's' command can be followed directly by 'c', 'g', 'i', 'I' or 'r'
 ///          but :sre[wind] is another command, as are :scr[iptnames],
 ///          :scs[cope], :sim[alt], :sig[ns] and :sil[ent].
 static int one_letter_cmd(const char *p, cmdidx_T *idx)
 {
-  if (*p == 'k') {
+  if (p[0] == 'k'
+      && (p[1] != 'e' || (p[1] == 'e' && p[2] != 'e'))) {
     *idx = CMD_k;
     return true;
   }
@@ -3063,6 +3067,9 @@ char *find_ex_command(exarg_T *eap, int *full)
   char *p = eap->cmd;
   if (one_letter_cmd(p, &eap->cmdidx)) {
     p++;
+    if (full != NULL) {
+      *full = true;
+    }
   } else {
     while (ASCII_ISALPHA(*p)) {
       p++;
@@ -4700,6 +4707,13 @@ void not_exiting(void)
   exiting = false;
 }
 
+/// Call this function if we thought we were going to restart, but we won't
+/// (because of an error).
+void not_restarting(void)
+{
+  restarting = false;
+}
+
 bool before_quit_autocmds(win_T *wp, bool quit_all, bool forceit)
 {
   apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer);
@@ -4829,22 +4843,61 @@ int before_quit_all(exarg_T *eap)
 }
 
 /// ":qall": try to quit all windows
-/// ":restart": restart the Nvim server
-static void ex_quitall_or_restart(exarg_T *eap)
+static void ex_quitall(exarg_T *eap)
 {
   if (before_quit_all(eap) == FAIL) {
     return;
   }
   exiting = true;
-  Error err = ERROR_INIT;
-  if ((eap->forceit || !check_changed_any(false, false))
-      && (eap->cmdidx != CMD_restart || remote_ui_restart(current_ui, &err))) {
-    getout(0);
+  if (!eap->forceit && check_changed_any(false, false)) {
+    not_exiting();
+    return;
   }
-  not_exiting();
+  getout(0);
+}
+
+/// ":restart": restart the Nvim server (using ":qall!").
+/// ":restart +cmd": restart the Nvim server using ":cmd".
+/// ":restart +cmd <command>": restart the Nvim server using ":cmd" and add -c <command> to the new server.
+static void ex_restart(exarg_T *eap)
+{
+  // Patch v:argv to include "-c <arg>" when it restarts.
+  if (eap->arg != NULL) {
+    const list_T *l = get_vim_var_list(VV_ARGV);
+    int argc = tv_list_len(l);
+    list_T *argv_cpy = tv_list_alloc(argc + 2);
+    bool added_startup_arg = false;
+    TV_LIST_ITER_CONST(l, li, {
+      const char *arg = tv_get_string(TV_LIST_ITEM_TV(li));
+      size_t arg_size = strlen(arg);
+      assert(arg_size <= (size_t)SSIZE_MAX);
+      tv_list_append_string(argv_cpy, arg, (ssize_t)arg_size);
+      if (!added_startup_arg) {
+        tv_list_append_string(argv_cpy, "-c", 2);
+        size_t cmd_size = strlen(eap->arg);
+        assert(cmd_size <= (size_t)SSIZE_MAX);
+        tv_list_append_string(argv_cpy, eap->arg, (ssize_t)cmd_size);
+        added_startup_arg = true;
+      }
+    });
+    set_vim_var_list(VV_ARGV, argv_cpy);
+  }
+  char *quit_cmd = (eap->do_ecmd_cmd) ? eap->do_ecmd_cmd : "qall!";
+  Error err = ERROR_INIT;
+  if ((cmdmod.cmod_flags & CMOD_CONFIRM) && check_changed_any(false, false)) {
+    return;
+  }
+  restarting = true;
+  nvim_command(cstr_as_string(quit_cmd), &err);
   if (ERROR_SET(&err)) {
-    emsg(err.msg);  // UI disappeared already?
+    emsg(err.msg);  // Could not exit
     api_clear_error(&err);
+    not_restarting();
+    return;
+  }
+  if (!exiting) {
+    emsg("restart failed: +cmd did not quit the server");
+    not_restarting();
   }
 }
 
@@ -4919,7 +4972,7 @@ void ex_win_close(int forceit, win_T *win, tabpage_T *tp)
   if (tp == NULL) {
     win_close(win, !need_hide && !buf_hide(buf), forceit);
   } else {
-    win_close_othertab(win, !need_hide && !buf_hide(buf), tp);
+    win_close_othertab(win, !need_hide && !buf_hide(buf), tp, forceit);
   }
 }
 
@@ -5693,6 +5746,12 @@ static void ex_edit(exarg_T *eap)
     return;
   }
 
+  // prevent use of :edit on prompt-buffers
+  if (bt_prompt(curbuf) && eap->cmdidx == CMD_edit && *eap->arg == NUL) {
+    emsg("cannot :edit a prompt buffer");
+    return;
+  }
+
   do_exedit(eap, NULL);
 }
 
@@ -6052,11 +6111,7 @@ bool changedir_func(char *new_dir, CdScope scope)
 
   // For UNIX ":cd" means: go to home directory.
   // On other systems too if 'cdhome' is set.
-#if defined(UNIX)
-  if (*new_dir == NUL) {
-#else
   if (*new_dir == NUL && p_cdh) {
-#endif
     // Use NameBuff for home directory name.
     expand_env("$HOME", NameBuff, MAXPATHL);
     new_dir = NameBuff;
@@ -6095,13 +6150,11 @@ bool changedir_func(char *new_dir, CdScope scope)
 void ex_cd(exarg_T *eap)
 {
   char *new_dir = eap->arg;
-#if !defined(UNIX)
   // for non-UNIX ":cd" means: print current directory unless 'cdhome' is set
   if (*new_dir == NUL && !p_cdh) {
     ex_pwd(NULL);
     return;
   }
-#endif
 
   CdScope scope = kCdScopeGlobal;
   switch (eap->cmdidx) {

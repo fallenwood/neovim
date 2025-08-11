@@ -86,6 +86,7 @@ LSP
   arguments corresponding to a log entry instead of the individual arguments.
 • `vim.lsp.semantic_tokens.start/stop` now renamed to
   `vim.lsp.semantic_tokens.enable`
+• Missing fields in LSP messages are now represented using |vim.NIL| instead of nil.
 
 LUA
 
@@ -145,6 +146,7 @@ DEFAULTS
 
 • 'statusline' default is exposed as a statusline expression (previously it
   was implemented as an internal C routine).
+• 'statusline' includes |vim.diagnostic.status()|
 • Project-local configuration ('exrc') is also loaded from parent directories.
   Unset 'exrc' to stop further search.
 • Mappings:
@@ -157,6 +159,8 @@ DIAGNOSTICS
   location/quickfix list.
 • |vim.diagnostic.get()| now accepts an `enabled` filter to only return
   enabled or disabled diagnostics.
+• |vim.diagnostic.status()| returns a formatted string with current buffer
+  diagnostics
 
 EDITOR
 
@@ -171,6 +175,8 @@ EDITOR
   commands.
 • 'wildchar' now enables completion in search contexts using |/|, |?|, |:g|, |:v|
    and |:vimgrep| commands.
+• For security, 'exrc' no longer shows an "(a)llow" choice. Instead you must
+  "(v)iew" then run `:trust`.
 
 EVENTS
 
@@ -214,6 +220,8 @@ LSP
   jump to the problematic location.
 • Support for `textDocument/linkedEditingRange`: |lsp-linked_editing_range|
   https://microsoft.github.io/language-server-protocol/specification/#textDocument_linkedEditingRange
+• Support for related documents in pull diagnostics:
+  https://microsoft.github.io/language-server-protocol/specifications/specification-current/#relatedFullDocumentDiagnosticReport
 
 LUA
 
@@ -225,9 +233,12 @@ LUA
 • |vim.version.intersect()| computes intersection of two version ranges.
 • |Iter:take()| and |Iter:skip()| now optionally accept predicates.
 • Built-in plugin manager |vim.pack|
+• |vim.list.unique()| to deduplicate lists.
+• |vim.list.bisect()| for binary search.
 
 OPTIONS
 
+• 'autocomplete' enables |ins-autocompletion|.
 • 'autowriteall' writes all buffers upon receiving `SIGHUP`, `SIGQUIT` or `SIGTSTP`.
 • 'chistory' and 'lhistory' set size of the |quickfix-stack|.
 • 'completefuzzycollect' enables fuzzy collection of candidates for (some)
@@ -271,7 +282,7 @@ TERMINAL
 
 TREESITTER
 
-• todo
+• |:EditQuery| command gained tab-completion, works with injected languages.
 
 TUI
 
@@ -291,9 +302,11 @@ UI
 
 VIMSCRIPT
 
+• |chdir()| allows optionally specifying a scope argument.
 • |cmdcomplete_info()| gets current cmdline completion info.
 • |getcompletiontype()| gets command-line completion type for any string.
 • |prompt_getinput()| gets current user-input in prompt-buffer.
+• |wildtrigger()| triggers command-line expansion.
 
 ==============================================================================
 CHANGED FEATURES                                                 *news-changed*

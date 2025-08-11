@@ -1537,40 +1537,6 @@ void set_options_bin(int oldval, int newval, int opt_flags)
   didset_options_sctx(opt_flags, p_bin_dep_opts);
 }
 
-/// Find the parameter represented by the given character (eg ', :, ", or /),
-/// and return its associated value in the 'shada' string.
-/// Only works for number parameters, not for 'r' or 'n'.
-/// If the parameter is not specified in the string or there is no following
-/// number, return -1.
-int get_shada_parameter(int type)
-{
-  char *p = find_shada_parameter(type);
-  if (p != NULL && ascii_isdigit(*p)) {
-    return atoi(p);
-  }
-  return -1;
-}
-
-/// Find the parameter represented by the given character (eg ''', ':', '"', or
-/// '/') in the 'shada' option and return a pointer to the string after it.
-/// Return NULL if the parameter is not specified in the string.
-char *find_shada_parameter(int type)
-{
-  for (char *p = p_shada; *p; p++) {
-    if (*p == type) {
-      return p + 1;
-    }
-    if (*p == 'n') {                // 'n' is always the last one
-      break;
-    }
-    p = vim_strchr(p, ',');         // skip until next ','
-    if (p == NULL) {                // hit the end without finding parameter
-      break;
-    }
-  }
-  return NULL;
-}
-
 /// Expand environment variables for some string options.
 /// These string options cannot be indirect!
 /// If "val" is NULL expand the current value of the option.
@@ -4950,7 +4916,7 @@ void copy_winopt(winopt_T *from, winopt_T *to)
 }
 
 /// Check string options in a window for a NULL value.
-void check_win_options(win_T *win)
+static void check_win_options(win_T *win)
 {
   check_winopt(&win->w_onebuf_opt);
   check_winopt(&win->w_allbuf_opt);
@@ -5143,6 +5109,7 @@ void buf_copy_options(buf_T *buf, int flags)
       }
       buf->b_p_cpt = xstrdup(p_cpt);
       COPY_OPT_SCTX(buf, kBufOptComplete);
+      set_buflocal_cpt_callbacks(buf);
 #ifdef BACKSLASH_IN_FILENAME
       buf->b_p_csl = xstrdup(p_csl);
       COPY_OPT_SCTX(buf, kBufOptCompleteslash);

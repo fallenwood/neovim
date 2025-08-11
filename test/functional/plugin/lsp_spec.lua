@@ -1976,7 +1976,7 @@ describe('LSP', function()
         {
           NIL,
           {
-            arguments = { 'EXTRACT_METHOD', { metadata = {} }, 3, 0, 6123, NIL },
+            arguments = { 'EXTRACT_METHOD', { metadata = { field = vim.NIL } }, 3, 0, 6123, NIL },
             command = 'refactor.perform',
             title = 'EXTRACT_METHOD',
           },
@@ -3328,7 +3328,7 @@ describe('LSP', function()
           filename = '/test_a',
           kind = 'File',
           lnum = 2,
-          text = '[File] TestA',
+          text = '[File] TestA in TestAContainer',
         },
         {
           col = 1,
@@ -3337,7 +3337,7 @@ describe('LSP', function()
           filename = '/test_b',
           kind = 'Module',
           lnum = 4,
-          text = '[Module] TestB',
+          text = '[Module] TestB in TestBContainer (deprecated)',
         },
       }
       eq(
@@ -3364,7 +3364,7 @@ describe('LSP', function()
               containerName = 'TestAContainer',
             },
             {
-              deprecated = false,
+              deprecated = true,
               kind = 2,
               name = 'TestB',
               location = {
@@ -3774,7 +3774,7 @@ describe('LSP', function()
         }
         return vim.lsp.util.convert_signature_help_to_markdown_lines(signature_help, 'cs', { ',' })
       end)
-      local expected = { '```cs', 'TestEntity.TestEntity()', '```', 'some doc' }
+      local expected = { '```cs', 'TestEntity.TestEntity()', '```', '---', 'some doc' }
       eq(expected, result)
     end)
 
@@ -4498,7 +4498,7 @@ describe('LSP', function()
         name = 'prepare_rename_placeholder',
         expected_handlers = {
           { NIL, {}, { method = 'shutdown', client_id = 1 } },
-          { NIL, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
+          { {}, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
           { NIL, {}, { method = 'start', client_id = 1 } },
         },
         expected_text = 'placeholder', -- see fake lsp response
@@ -4508,7 +4508,7 @@ describe('LSP', function()
         name = 'prepare_rename_range',
         expected_handlers = {
           { NIL, {}, { method = 'shutdown', client_id = 1 } },
-          { NIL, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
+          { {}, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
           { NIL, {}, { method = 'start', client_id = 1 } },
         },
         expected_text = 'line', -- see test case and fake lsp response

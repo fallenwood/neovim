@@ -254,6 +254,7 @@ int nextwild(expand_T *xp, int type, int options, bool escape)
 {
   CmdlineInfo *const ccline = get_cmdline_info();
   char *p;
+  bool from_wildtrigger_func = options & WILD_FUNC_TRIGGER;
 
   if (xp->xp_numfiles == -1) {
     pre_incsearch_pos = xp->xp_pre_incsearch_pos;
@@ -280,16 +281,23 @@ int nextwild(expand_T *xp, int type, int options, bool escape)
     return FAIL;
   }
 
-  // If cmd_silent is set then don't show the dots, because redrawcmd() below
-  // won't remove them.
-  if (!cmd_silent && !(ui_has(kUICmdline) || ui_has(kUIWildmenu))) {
-    msg_puts("...");  // show that we are busy
-    ui_flush();
-  }
-
   int i = (int)(xp->xp_pattern - ccline->cmdbuff);
   assert(ccline->cmdpos >= i);
   xp->xp_pattern_len = (size_t)ccline->cmdpos - (size_t)i;
+
+  // Skip showing matches if prefix is invalid during wildtrigger()
+  if (from_wildtrigger_func && xp->xp_context == EXPAND_COMMANDS
+      && xp->xp_pattern_len == 0) {
+    return FAIL;
+  }
+
+  // If cmd_silent is set then don't show the dots, because redrawcmd() below
+  // won't remove them.
+  if (!cmd_silent && !from_wildtrigger_func
+      && !(ui_has(kUICmdline) || ui_has(kUIWildmenu))) {
+    msg_puts("...");  // show that we are busy
+    ui_flush();
+  }
 
   if (type == WILD_NEXT || type == WILD_PREV
       || type == WILD_PAGEUP || type == WILD_PAGEDOWN
@@ -2006,12 +2014,14 @@ static const char *set_context_by_cmdname(const char *cmd, cmdidx_T cmdidx, expa
   case CMD_lockmarks:
   case CMD_noautocmd:
   case CMD_noswapfile:
+  case CMD_restart:
   case CMD_rightbelow:
   case CMD_sandbox:
   case CMD_silent:
   case CMD_tab:
   case CMD_tabdo:
   case CMD_topleft:
+  case CMD_unsilent:
   case CMD_verbose:
   case CMD_vertical:
   case CMD_windo:
@@ -2287,7 +2297,6 @@ static const char *set_context_by_cmdname(const char *cmd, cmdidx_T cmdidx, expa
     break;
   case CMD_checkhealth:
     xp->xp_context = EXPAND_CHECKHEALTH;
-    xp->xp_pattern = (char *)arg;
     break;
 
   case CMD_retab:
@@ -4037,8 +4046,18 @@ static int copy_substring_from_pos(pos_T *start, pos_T *end, char **match, pos_T
 /// case sensitivity.
 static bool is_regex_match(char *pat, char *str)
 {
+  if (strcmp(pat, str) == 0) {
+    return true;
+  }
+
   regmatch_T regmatch;
+
+  emsg_off++;
+  msg_silent++;
   regmatch.regprog = vim_regcomp(pat, RE_MAGIC + RE_STRING);
+  emsg_off--;
+  msg_silent--;
+
   if (regmatch.regprog == NULL) {
     return false;
   }
@@ -4047,7 +4066,11 @@ static bool is_regex_match(char *pat, char *str)
     regmatch.rm_ic = !pat_has_uppercase(pat);
   }
 
+  emsg_off++;
+  msg_silent++;
   bool result = vim_regexec_nl(&regmatch, str, (colnr_T)0);
+  emsg_off--;
+  msg_silent--;
 
   vim_regfree(regmatch.regprog);
   return result;

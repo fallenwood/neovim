@@ -276,25 +276,31 @@ func Test_complete()
   new
   call feedkeys("i\<C-N>\<Esc>", 'xt')
   bwipe!
-  call assert_fails('set complete=ix', 'E535:')
-  call assert_fails('set complete=x', 'E539:')
-  call assert_fails('set complete=..', 'E535:')
+  call assert_fails('set complete=ix', 'E535: Illegal character after <i>')
+  call assert_fails('set complete=x', 'E539: Illegal character <x>')
+  call assert_fails('set complete=..', 'E535: Illegal character after <.>')
   set complete=.,w,b,u,k,\ s,i,d,],t,U,F,o
-  call assert_fails('set complete=i^-10', 'E535:')
-  call assert_fails('set complete=i^x', 'E535:')
-  call assert_fails('set complete=k^2,t^-1,s^', 'E535:')
-  call assert_fails('set complete=t^-1', 'E535:')
-  call assert_fails('set complete=kfoo^foo2', 'E535:')
-  call assert_fails('set complete=kfoo^', 'E535:')
-  call assert_fails('set complete=.^', 'E535:')
+  call assert_fails('set complete=i^-10', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=i^x', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=k^2,t^-1,s^', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=t^-1', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=kfoo^foo2', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=kfoo^', 'E535: Illegal character after <^>')
+  call assert_fails('set complete=.^', 'E535: Illegal character after <^>')
   set complete=.,w,b,u,k,s,i,d,],t,U,F,o
   set complete=.
   set complete=.^10,t^0
-  set complete+=Ffuncref('foo'\\,\ [10])
-  set complete=Ffuncref('foo'\\,\ [10])^10
+
+  func Foo(a, b)
+    return ''
+  endfunc
+
+  set complete+=Ffuncref('Foo'\\,\ [10])
+  set complete=Ffuncref('Foo'\\,\ [10])^10
   set complete&
-  set complete+=Ffunction('g:foo'\\,\ [10\\,\ 20])
+  set complete+=Ffunction('g:Foo'\\,\ [10\\,\ 20])
   set complete&
+  delfunc Foo
 endfun
 
 func Test_set_completion()
@@ -2690,7 +2696,7 @@ func GetGlobalLocalWindowOptions()
   " Filter for global or local to window
   v/^'.*'.*\n.*global or local to window |global-local/d
   " get option value and type
-  sil %s/^'\([^']*\)'.*'\s\+\(\w\+\)\s\+(default \%(\(".*"\|\d\+\|empty\)\).*/\1 \2 \3/g
+  sil %s/^'\([^']*\)'.*'\s\+\(\w\+\)\s\+(default \%(\(".*"\|\d\+\|empty\|is very long\)\).*/\1 \2 \3/g
   " sil %s/empty/""/g
   " split the result
   " let result=getline(1,'$')->map({_, val -> split(val, ' ')})
@@ -2705,6 +2711,10 @@ func Test_set_option_window_global_local_all()
   let optionlist = GetGlobalLocalWindowOptions()
   for [opt, type, default] in optionlist
     let _old = eval('&g:' .. opt)
+    if opt == 'statusline'
+      " parsed default value is "is very long" as it is a doc string, not actual value
+      let default = "\"" . _old . "\""
+    endif
     if type == 'string'
       if opt == 'fillchars'
         exe 'setl ' .. opt .. '=vert:+'

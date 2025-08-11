@@ -484,7 +484,51 @@ describe('cmdline', function()
       /the^                                                        |
     ]])
 
+    -- 'incsearch' highlight is restored after dismissing popup (Ctrl_E)
     feed('<esc>')
+    command('set wop=pum is nohls')
+    feed('gg/th<tab><c-e>')
+    screen:expect([[
+      the                                                         |
+      {2:th}ese                                                       |
+      the                                                         |
+      foobar                                                      |
+      thethe                                                      |
+      thethere                                                    |
+      {1:~                                                           }|*3
+      /th^                                                         |
+    ]])
+
+    feed('<esc>')
+  end)
+
+  -- oldtest: Test_search_wildmenu_iminsert()
+  it('search wildmenu pum with iminsert=1', function()
+    local screen = Screen.new(65, 12)
+    exec([[
+      set wop=pum imi=1
+      setlocal iskeyword=!-~,192-255
+      call setline(1, [
+            \ "global toggle global-local global/local glyphs toggles English",
+            \ "accordingly. toggled accordingly single-byte",
+            \ ])
+      call cursor(2, 42)
+    ]])
+    feed('/gl<Tab>')
+    screen:expect([[
+      {12: global         }obal-local global/local glyphs toggles English   |
+      {4: gle            }gled accordingly single-byte                     |
+      {4: global-local   }{1:                                                 }|
+      {4: global/local   }{1:                                                 }|
+      {4: glyphs         }{1:                                                 }|
+      {4: gles           }{1:                                                 }|
+      {4: glish          }{1:                                                 }|
+      {4: gly.           }{1:                                                 }|
+      {4: gled           }{1:                                                 }|
+      {4: gly            }{1:                                                 }|
+      {4: gle-byte       }{1:                                                 }|
+      /global^                                                          |
+    ]])
   end)
 end)
 

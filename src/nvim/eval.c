@@ -266,6 +266,7 @@ static struct vimvar {
   VV(VV_TYPE_BOOL,        "t_bool",           VAR_NUMBER, VV_RO),
   VV(VV_TYPE_BLOB,        "t_blob",           VAR_NUMBER, VV_RO),
   VV(VV_EVENT,            "event",            VAR_DICT, VV_RO),
+  VV(VV_VERSIONLONG,      "versionlong",      VAR_NUMBER, VV_RO),
   VV(VV_ECHOSPACE,        "echospace",        VAR_NUMBER, VV_RO),
   VV(VV_ARGV,             "argv",             VAR_LIST, VV_RO),
   VV(VV_COLLATE,          "collate",          VAR_STRING, VV_RO),
@@ -433,6 +434,7 @@ void eval_init(void)
     }
   }
   vimvars[VV_VERSION].vv_nr = VIM_VERSION_100;
+  vimvars[VV_VERSIONLONG].vv_nr = VIM_VERSION_100 * 10000 + highest_patch();
 
   dict_T *const msgpack_types_dict = tv_dict_alloc();
   for (size_t i = 0; i < ARRAY_SIZE(msgpack_type_names); i++) {
@@ -4793,6 +4795,9 @@ bool garbage_collect(bool testing)
     ABORTING(set_ref_in_callback)(&buf->b_tsrfu_cb, copyID, NULL, NULL);
     ABORTING(set_ref_in_callback)(&buf->b_tfu_cb, copyID, NULL, NULL);
     ABORTING(set_ref_in_callback)(&buf->b_ffu_cb, copyID, NULL, NULL);
+    if (!abort && buf->b_p_cpt_cb != NULL) {
+      ABORTING(set_ref_in_cpt_callbacks)(buf->b_p_cpt_cb, buf->b_p_cpt_count, copyID);
+    }
   }
 
   // 'completefunc', 'omnifunc' and 'thesaurusfunc' callbacks

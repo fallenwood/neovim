@@ -255,14 +255,53 @@ describe('TUI :restart', function()
     tt.feed_data(':1restart\013')
     screen:expect({ any = vim.pesc('{101:E481: No range allowed}') })
 
-    tt.feed_data(':restart foo\013')
-    screen:expect({ any = vim.pesc('{101:E488: Trailing characters: foo}') })
+    local s1 = [[
+                                                        |
+                                                        |
+      {2:                                                  }|
+      {MATCH:%d+ +}|
+      Hello                                             |
+      {102:Press ENTER or type command to continue}^           |
+      {5:-- TERMINAL --}                                    |
+    ]]
+
+    -- Check trailing characters are considered in -c
+    tt.feed_data(':restart echo "Hello"\013')
+    screen_expect(s1)
+    tt.feed_data('\013')
+    restart_pid_check()
+    gui_running_check()
+
+    -- Check trailing characters after +cmd are considered in -c
+    tt.feed_data(':restart +qall echo "Hello" | echo "World"\013')
+    screen_expect([[
+                                                        |
+      {2:                                                  }|
+      {MATCH:%d+ +}|
+      Hello                                             |
+      World                                             |
+      {102:Press ENTER or type command to continue}^           |
+      {5:-- TERMINAL --}                                    |
+    ]])
+    tt.feed_data('\013')
+    restart_pid_check()
+    gui_running_check()
 
     -- Check ":restart" on an unmodified buffer.
     tt.feed_data(':restart\013')
     screen_expect(s0)
     restart_pid_check()
     gui_running_check()
+
+    -- Check ":restart +qall" on an unmodified buffer.
+    tt.feed_data(':restart +qall\013')
+    screen_expect(s0)
+    restart_pid_check()
+    gui_running_check()
+
+    -- Check ":restart +echo" cannot restart server.
+    tt.feed_data(':restart +echo\013')
+    screen:expect({ any = vim.pesc('+cmd did not quit the server') })
 
     tt.feed_data('ithis will be removed\027')
     screen_expect([[
@@ -273,20 +312,26 @@ describe('TUI :restart', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    -- Check ":restart" on a modified buffer.
-    tt.feed_data(':restart\013')
-    screen_expect([[
-      this will be removed                              |
-      {3:                                                  }|
-      {101:E37: No write since last change}                   |
-      {101:E162: No write since last change for buffer "[No N}|
-      {101:ame]"}                                             |
-      {102:Press ENTER or type command to continue}^           |
-      {5:-- TERMINAL --}                                    |
-    ]])
+    -- Check ":confirm restart" on a modified buffer.
+    tt.feed_data(':confirm restart\013')
+    screen:expect({ any = vim.pesc('Save changes to "Untitled"?') })
 
-    -- Check ":restart!".
-    tt.feed_data(':restart!\013')
+    -- Cancel the operation (abandons restart).
+    tt.feed_data('C\013')
+
+    -- Check ":confirm restart <cmd>" on a modified buffer.
+    tt.feed_data(':confirm restart echo "Hello"\013')
+    screen:expect({ any = vim.pesc('Save changes to "Untitled"?') })
+    tt.feed_data('N\013')
+
+    -- Check if the -c <cmd> runs after restart.
+    screen_expect(s1)
+    tt.feed_data('\013')
+    restart_pid_check()
+    gui_running_check()
+
+    -- Check ":restart" on the modified buffer.
+    tt.feed_data(':restart\013')
     screen_expect(s0)
     restart_pid_check()
     gui_running_check()
@@ -3728,9 +3773,9 @@ describe('TUI client', function()
     screen_client:expect(s1)
     screen_server:expect(s1)
 
-    -- Run :restart! on the remote client.
+    -- Run :restart on the remote client.
     -- The remote client should start a new server while the original one should exit.
-    feed_data(':restart!\n')
+    feed_data(':restart\n')
     screen_client:expect([[
       ^                                                  |
       {100:~                                                 }|*3
@@ -3805,9 +3850,9 @@ describe('TUI client', function()
     feed_data(':echo "GUI Running: " .. has("gui_running")\013')
     screen_client:expect({ any = 'GUI Running: 1' })
 
-    -- Run :restart! on the client.
+    -- Run :restart on the client.
     -- The client should start a new server while the original server should exit.
-    feed_data(':restart!\n')
+    feed_data(':restart\n')
     screen_client:expect([[
       ^                                                  |
       {100:~                                                 }|*4

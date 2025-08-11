@@ -1152,7 +1152,7 @@ Elixir.
 FLEXWIKI				*flexwiki.vim* *ft-flexwiki-syntax*
 
 FlexWiki is an ASP.NET-based wiki package available at
-https://www.flexwiki.com
+www.flexwiki.com
 NOTE: This site currently doesn't work, on Wikipedia is mentioned that
 development stopped in 2009.
 
@@ -1742,6 +1742,15 @@ Certain modifiers are incompatible with each other, e.g. `abstract` and
 and can be differently highlighted as a group than other modifiers with >
 	:hi link javaConceptKind NonText
 
+All instances of variable-width lookbehind assertions (|/\@<!| and |/\@<=|),
+resorted to in syntax item definitions, are confined to arbitrary byte counts.
+Another arbitrary value can be selected for a related group of definitions.
+For example: >
+	:let g:java_lookbehind_byte_counts = {'javaMarkdownCommentTitle': 240}
+Where each key name of this dictionary is the name of a syntax item.  The use
+of these assertions in syntax items may vary among revisions, so no definitive
+set of supported key names is committed to.
+
 If you notice highlighting errors while scrolling backwards, which are fixed
 when redrawing with CTRL-L, try setting the "g:java_minlines" variable to
 a larger number: >
@@ -1854,7 +1863,7 @@ the parentheses and backquoted parentheses.  Because of the quantity of
 colorization levels, unlike non-rainbow highlighting, the rainbow mode
 specifies its highlighting using ctermfg and guifg, thereby bypassing the
 usual color scheme control using standard highlighting groups.  The actual
-highlighting used depends on the dark/bright setting  (see |'bg'|).
+highlighting used depends on the dark/bright setting  (see 'bg').
 
 
 LITE						*lite.vim* *ft-lite-syntax*
@@ -3421,7 +3430,7 @@ always accept such use of @.
 					*tex-cchar* *tex-cole* *tex-conceal*
  Tex: Taking Advantage of Conceal Mode~
 
-If you have |'conceallevel'| set to 2 and if your encoding is utf-8, then a
+If you have 'conceallevel' set to 2 and if your encoding is utf-8, then a
 number of character sequences can be translated into appropriate utf-8 glyphs,
 including various accented characters, Greek characters in MathZones, and
 superscripts and subscripts in MathZones.  Not all characters can be made into
@@ -3429,7 +3438,7 @@ superscripts or subscripts; the constraint is due to what utf-8 supports.
 In fact, only a few characters are supported as subscripts.
 
 One way to use this is to have vertically split windows (see |CTRL-W_v|); one
-with |'conceallevel'| at 0 and the other at 2; and both using |'scrollbind'|.
+with 'conceallevel' at 0 and the other at 2; and both using 'scrollbind'.
 
 					*g:tex_conceal*
  Tex: Selective Conceal Mode~
@@ -3555,8 +3564,8 @@ improve screen updating rates (see |:syn-sync| for more on this). >
 The g:vimsyn_embed option allows users to select what, if any, types of
 embedded script highlighting they wish to have. >
 
-   g:vimsyn_embed == 0      : disable (don't embed any scripts)
-   g:vimsyn_embed == 'lpPr' : support embedded Lua, Perl, Python and Ruby
+   g:vimsyn_embed == 0       : disable (don't embed any scripts)
+   g:vimsyn_embed ==# 'lpPr' : support embedded Lua, Perl, Python and Ruby
 <
 By default, g:vimsyn_embed is unset, and embedded Lua scripts are supported.
 
@@ -3564,13 +3573,13 @@ By default, g:vimsyn_embed is unset, and embedded Lua scripts are supported.
 Some folding is now supported with when 'foldmethod' is set to "syntax": >
 
    g:vimsyn_folding == 0 or doesn't exist: no syntax-based folding
-   g:vimsyn_folding =~ 'a' : fold augroups
-   g:vimsyn_folding =~ 'f' : fold functions
-   g:vimsyn_folding =~ 'h' : fold let heredocs
-   g:vimsyn_folding =~ 'l' : fold Lua      heredocs
-   g:vimsyn_folding =~ 'p' : fold Perl     heredocs
-   g:vimsyn_folding =~ 'P' : fold Python   heredocs
-   g:vimsyn_folding =~ 'r' : fold Ruby     heredocs
+   g:vimsyn_folding =~# 'a' : fold augroups
+   g:vimsyn_folding =~# 'f' : fold functions
+   g:vimsyn_folding =~# 'h' : fold let heredocs
+   g:vimsyn_folding =~# 'l' : fold Lua      heredocs
+   g:vimsyn_folding =~# 'p' : fold Perl     heredocs
+   g:vimsyn_folding =~# 'P' : fold Python   heredocs
+   g:vimsyn_folding =~# 'r' : fold Ruby     heredocs
 <
 
 By default, g:vimsyn_folding is unset.  Concatenate the indicated characters

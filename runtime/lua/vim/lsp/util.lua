@@ -520,7 +520,7 @@ function M.apply_text_document_edit(
     -- do not check the version after the first edit.
     not (index and index > 1)
     and (
-      text_document.version
+      text_document.version ~= vim.NIL
       and text_document.version > 0
       and M.buf_versions[bufnr] > text_document.version
     )
@@ -822,13 +822,21 @@ function M.convert_signature_help_to_markdown_lines(signature_help, ft, triggers
     if type(doc) == 'string' then
       signature.documentation = { kind = 'plaintext', value = doc }
     end
+    -- Add delimiter if there is documentation to display
+    if signature.documentation.value ~= '' then
+      contents[#contents + 1] = '---'
+    end
     M.convert_input_to_markdown_lines(signature.documentation, contents)
   end
   if signature.parameters and #signature.parameters > 0 then
     -- First check if the signature has an activeParameter. If it doesn't check if the response
     -- had that property instead. Else just default to 0.
-    local active_parameter =
-      math.max(signature.activeParameter or signature_help.activeParameter or 0, 0)
+    --
+    -- NOTE: Using tonumber() as a temporary workaround to handle `vim.NIL` until #34838 is merged
+    local active_parameter = math.max(
+      tonumber(signature.activeParameter) or tonumber(signature_help.activeParameter) or 0,
+      0
+    )
 
     -- If the activeParameter is > #parameters, then set it to the last
     -- NOTE: this is not fully according to the spec, but a client-side interpretation
@@ -938,7 +946,7 @@ function M.make_floating_popup_options(width, height, opts)
     col = 1
   end
 
-  local title = (opts.border and opts.title) and opts.title or nil
+  local title = ((opts.border or vim.o.winborder ~= '') and opts.title) and opts.title or nil
   local title_pos --- @type 'left'|'center'|'right'?
 
   if title then
@@ -1093,10 +1101,39 @@ local function is_blank_line(line)
 end
 
 ---Returns true if the line corresponds to a Markdown thematic break.
+---@see https://github.github.com/gfm/#thematic-break
 ---@param line string
 ---@return boolean
 local function is_separator_line(line)
-  return line and line:match('^ ? ? ?%-%-%-+%s*$')
+  local i = 1
+  -- 1. Skip up to 3 leading spaces
+  local leading_spaces = 3
+  while i <= #line and line:byte(i) == string.byte(' ') and leading_spaces > 0 do
+    i = i + 1
+    leading_spaces = leading_spaces - 1
+  end
+  -- 2. Determine the delimiter character
+  local delimiter = line:byte(i) -- nil if i > #line
+  if
+    delimiter ~= string.byte('-')
+    and delimiter ~= string.byte('_')
+    and delimiter ~= string.byte('*')
+  then
+    return false
+  end
+  local ndelimiters = 1
+  i = i + 1
+  -- 3. Iterate until found non-whitespace or other than expected delimiter
+  while i <= #line do
+    local char = line:byte(i)
+    if char == delimiter then
+      ndelimiters = ndelimiters + 1
+    elseif not (char == string.byte(' ') or char == string.byte('\t')) then
+      return false
+    end
+    i = i + 1
+  end
+  return ndelimiters >= 3
 end
 
 ---Replaces separator lines by the given divider and removing surrounding blank lines.
@@ -1367,7 +1404,7 @@ end
 --- Normalizes Markdown input to a canonical form.
 ---
 --- The returned Markdown adheres to the GitHub Flavored Markdown (GFM)
---- specification.
+--- specification, as required by the LSP.
 ---
 --- The following transformations are made:
 ---
@@ -1378,6 +1415,7 @@ end
 ---@param contents string[]
 ---@param opts? vim.lsp.util._normalize_markdown.Opts
 ---@return string[] table of lines containing normalized Markdown
+---@see https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#markupContent
 ---@see https://github.github.com/gfm
 function M._normalize_markdown(contents, opts)
   validate('contents', contents, 'table')
@@ -1867,7 +1905,7 @@ end
 
 --- Converts symbols to quickfix list items.
 ---
----@param symbols lsp.DocumentSymbol[]|lsp.SymbolInformation[] list of symbols
+---@param symbols lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[] list of symbols
 ---@param bufnr? integer buffer handle or 0 for current, defaults to current
 ---@param position_encoding? 'utf-8'|'utf-16'|'utf-32'
 ---                         default to first client of buffer
@@ -1907,8 +1945,13 @@ function M.symbols_to_items(symbols, bufnr, position_encoding)
 
       local is_deprecated = symbol.deprecated
         or (symbol.tags and vim.tbl_contains(symbol.tags, protocol.SymbolTag.Deprecated))
-      local text =
-        string.format('[%s] %s%s', kind, symbol.name, is_deprecated and ' (deprecated)' or '')
+      local text = string.format(
+        '[%s] %s%s%s',
+        kind,
+        symbol.name,
+        symbol.containerName and ' in ' .. symbol.containerName or '',
+        is_deprecated and ' (deprecated)' or ''
+      )
 
       items[#items + 1] = {
         filename = filename,
