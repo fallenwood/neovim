@@ -5,6 +5,10 @@
     .minimum_zig_version = "0.14.0",
 
     .dependencies = .{
+        .zlua = .{
+            .url = "git+https://github.com/natecraddock/ziglua#6889b2d90ee6ae96810a9f04ec7c62d9aa91d088",
+            .hash = "zlua-0.1.0-hGRpCxctBQDEQgDArJ0Kc4RDIsD-Hw3pw9pPPw_kGmmY",
+        },
         .lpeg = .{
             .url = "https://github.com/neovim/deps/raw/d495ee6f79e7962a53ad79670cb92488abe0b9b4/opt/lpeg-1.1.0.tar.gz",
             .hash = "N-V-__8AAMnaAwCEutreuREG3QayBVEZqUTDQFY1Nsrv2OIt",
@@ -52,10 +56,6 @@
         .treesitter_query = .{
             .url = "git+https://github.com/tree-sitter-grammars/tree-sitter-query?ref=v0.6.2#8a43889f89fd0667289936341bff3a77bafade17",
             .hash = "N-V-__8AAARLBACBLGiXGFTijEzLv8AwiqT_kJpmVjir1BgX",
-        },
-        .zlua = .{
-            .url = "git+https://github.com/natecraddock/ziglua?ref=main#6889b2d90ee6ae96810a9f04ec7c62d9aa91d088",
-            .hash = "zlua-0.1.0-hGRpCxctBQDEQgDArJ0Kc4RDIsD-Hw3pw9pPPw_kGmmY",
         },
     },
     .paths = .{
