@@ -209,8 +209,10 @@ local all_clients = {}
 --- See [vim.lsp.ClientConfig].
 --- @field workspace_folders lsp.WorkspaceFolder[]?
 ---
---- Whether linked editing ranges are enabled for this client.
---- @field _linked_editing_enabled boolean?
+--- @field _enabled_capabilities table<vim.lsp.capability.Name, boolean?>
+---
+--- Whether on-type formatting is enabled for this client.
+--- @field _otf_enabled boolean?
 ---
 --- Track this so that we can escalate automatically if we've already tried a
 --- graceful shutdown
@@ -436,6 +438,9 @@ function Client.create(config)
     end,
   }
 
+  ---@type table <vim.lsp.capability.Name, boolean?>
+  self._enabled_capabilities = {}
+
   --- @type table<string|integer, string> title of unfinished progress sequences by token
   self.progress.pending = {}
 
@@ -508,6 +513,11 @@ function Client:initialize()
     root_uri = self.workspace_folders[1].uri
     root_path = vim.uri_to_fname(root_uri)
   end
+
+  -- HACK: Capability modules must be loaded
+  require('vim.lsp.semantic_tokens')
+  require('vim.lsp._folding_range')
+  require('vim.lsp.inline_completion')
 
   local init_params = {
     -- The process Id of the parent process that started the server. Is null if
@@ -601,6 +611,7 @@ local static_registration_capabilities = {
   [ms.textDocument_foldingRange] = 'foldingRangeProvider',
   [ms.textDocument_implementation] = 'implementationProvider',
   [ms.textDocument_inlayHint] = 'inlayHintProvider',
+  [ms.textDocument_inlineCompletion] = 'inlineCompletionProvider',
   [ms.textDocument_inlineValue] = 'inlineValueProvider',
   [ms.textDocument_linkedEditingRange] = 'linkedEditingRangeProvider',
   [ms.textDocument_moniker] = 'monikerProvider',
@@ -863,7 +874,7 @@ function Client:stop(force)
   self._is_stopping = true
   local rpc = self.rpc
 
-  vim.lsp._watchfiles.cancel(self.id)
+  lsp._watchfiles.cancel(self.id)
 
   if force or not self.initialized or self._graceful_shutdown_failed then
     rpc.terminate()
@@ -913,7 +924,7 @@ function Client:_register(registrations)
   for _, reg in ipairs(registrations) do
     local method = reg.method
     if method == ms.workspace_didChangeWatchedFiles then
-      vim.lsp._watchfiles.register(reg, self.id)
+      lsp._watchfiles.register(reg, self.id)
     elseif not self:_supports_registration(method) then
       unsupported[#unsupported + 1] = method
     end
@@ -947,7 +958,7 @@ function Client:_unregister(unregistrations)
   self:_unregister_dynamic(unregistrations)
   for _, unreg in ipairs(unregistrations) do
     if unreg.method == ms.workspace_didChangeWatchedFiles then
-      vim.lsp._watchfiles.unregister(unreg, self.id)
+      lsp._watchfiles.unregister(unreg, self.id)
     end
   end
 end
@@ -1076,6 +1087,10 @@ function Client:on_attach(bufnr)
   self:_text_document_did_open_handler(bufnr)
 
   lsp._set_defaults(self, bufnr)
+  -- `enable(true)` cannot be called from `_set_defaults` for features with dynamic registration,
+  -- because it overrides the state every time `client/registerCapability` is received.
+  -- To allow disabling it once in `LspAttach`, we enable it once here instead.
+  lsp.document_color.enable(true, bufnr)
 
   api.nvim_exec_autocmds('LspAttach', {
     buffer = bufnr,
@@ -1084,16 +1099,24 @@ function Client:on_attach(bufnr)
   })
 
   self:_run_callbacks(self._on_attach_cbs, lsp.client_errors.ON_ATTACH_ERROR, self, bufnr)
-
-  -- schedule the initialization of semantic tokens to give the above
+  -- schedule the initialization of capabilities to give the above
   -- on_attach and LspAttach callbacks the ability to schedule wrap the
   -- opt-out (deleting the semanticTokensProvider from capabilities)
   vim.schedule(function()
-    if vim.tbl_get(self.server_capabilities, 'semanticTokensProvider', 'full') then
-      lsp.semantic_tokens._start(bufnr, self.id)
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
     end
-    if vim.tbl_get(self.server_capabilities, 'foldingRangeProvider') then
-      lsp._folding_range._setup(bufnr)
+    for _, Capability in pairs(lsp._capability.all) do
+      if
+        self:supports_method(Capability.method)
+        and lsp._capability.is_enabled(Capability.name, {
+          bufnr = bufnr,
+          client_id = self.id,
+        })
+      then
+        local capability = Capability.active[bufnr] or Capability:new(bufnr)
+        capability:on_attach(self.id)
+      end
     end
   end)
 
@@ -1207,6 +1230,24 @@ function Client:_on_detach(bufnr)
     })
   end
 
+  for _, Capability in pairs(lsp._capability.all) do
+    if
+      self:supports_method(Capability.method)
+      and lsp._capability.is_enabled(Capability.name, {
+        bufnr = bufnr,
+        client_id = self.id,
+      })
+    then
+      local capability = Capability.active[bufnr]
+      if capability then
+        capability:on_detach(self.id)
+        if next(capability.client_state) == nil then
+          capability:destroy()
+        end
+      end
+    end
+  end
+
   changetracking.reset_buf(self, bufnr)
 
   if self:supports_method(ms.textDocument_didClose) then
@@ -1235,7 +1276,7 @@ local function reset_defaults(bufnr)
   end
   vim._with({ buf = bufnr }, function()
     local keymap = vim.fn.maparg('K', 'n', false, true)
-    if keymap and keymap.callback == vim.lsp.buf.hover and keymap.buffer == 1 then
+    if keymap and keymap.callback == lsp.buf.hover and keymap.buffer == 1 then
       vim.keymap.del('n', 'K', { buffer = bufnr })
     end
   end)
@@ -1272,7 +1313,7 @@ function Client:_on_exit(code, signal)
         self and self.name or 'unknown',
         code,
         signal,
-        lsp.get_log_path()
+        log.get_filename()
       )
       vim.notify(msg, vim.log.levels.WARN)
     end

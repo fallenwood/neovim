@@ -92,9 +92,7 @@
 # define UV_FS_COPYFILE_FICLONE 0
 #endif
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "fileio.c.generated.h"
-#endif
+#include "fileio.c.generated.h"
 
 static const char *e_auchangedbuf = N_("E812: Autocommands changed buffer or buffer name");
 
@@ -734,7 +732,7 @@ retry:
     }
     // Delete the previously read lines.
     while (lnum > from) {
-      ml_delete(lnum--, false);
+      ml_delete(lnum--);
     }
     file_rewind = false;
     if (set_options) {
@@ -1661,7 +1659,7 @@ failed:
   if (!recoverymode) {
     // need to delete the last line, which comes from the empty buffer
     if (newfile && wasempty && !(curbuf->b_ml.ml_flags & ML_EMPTY)) {
-      ml_delete(curbuf->b_ml.ml_line_count, false);
+      ml_delete(curbuf->b_ml.ml_line_count);
       linecnt--;
     }
     curbuf->deleted_bytes = 0;
@@ -2823,7 +2821,7 @@ static int move_lines(buf_T *frombuf, buf_T *tobuf)
   if (retval != FAIL) {
     curbuf = frombuf;
     for (linenr_T lnum = curbuf->b_ml.ml_line_count; lnum > 0; lnum--) {
-      if (ml_delete(lnum, false) == FAIL) {
+      if (ml_delete(lnum) == FAIL) {
         // Oops!  We could try putting back the saved lines, but that
         // might fail again...
         retval = FAIL;
@@ -3139,7 +3137,7 @@ void buf_reload(buf_T *buf, int orig_mode, bool reload_options)
         // Put the text back from the save buffer.  First
         // delete any lines that readfile() added.
         while (!buf_is_empty(curbuf)) {
-          if (ml_delete(buf->b_ml.ml_line_count, false) == FAIL) {
+          if (ml_delete(buf->b_ml.ml_line_count) == FAIL) {
             break;
           }
         }

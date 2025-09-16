@@ -95,10 +95,11 @@ static bool diff_need_update = false;  // ex_diffupdate needs to be called
 #define ALL_WHITE_DIFF (DIFF_IWHITE | DIFF_IWHITEALL | DIFF_IWHITEEOL)
 #define ALL_INLINE (DIFF_INLINE_NONE | DIFF_INLINE_SIMPLE | DIFF_INLINE_CHAR | DIFF_INLINE_WORD)
 #define ALL_INLINE_DIFF (DIFF_INLINE_CHAR | DIFF_INLINE_WORD)
-static int diff_flags = DIFF_INTERNAL | DIFF_FILLER | DIFF_CLOSE_OFF;
+static int diff_flags = DIFF_INTERNAL | DIFF_FILLER | DIFF_CLOSE_OFF
+                        | DIFF_LINEMATCH | DIFF_INLINE_CHAR;
 
-static int diff_algorithm = 0;
-static int linematch_lines = 0;
+static int diff_algorithm = XDF_INDENT_HEURISTIC;
+static int linematch_lines = 40;
 
 #define LBUFLEN 50               // length of line in diff file
 
@@ -142,9 +143,7 @@ typedef enum {
   DIFF_NONE,
 } diffstyle_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "diff.c.generated.h"
-#endif
+#include "diff.c.generated.h"
 
 #define FOR_ALL_DIFFBLOCKS_IN_TAB(tp, dp) \
   for ((dp) = (tp)->tp_first_diff; (dp) != NULL; (dp) = (dp)->df_next)
@@ -875,7 +874,7 @@ static int diff_write(buf_T *buf, diffin_T *din, linenr_T start, linenr_T end)
   cmdmod.cmod_flags = save_cmod_flags;
   free_string_option(buf->b_p_ff);
   buf->b_p_ff = save_ff;
-  buf->b_ml.ml_flags = save_ml_flags;
+  buf->b_ml.ml_flags = (buf->b_ml.ml_flags & ~ML_EMPTY) | (save_ml_flags & ML_EMPTY);
   return r;
 }
 
@@ -3816,7 +3815,7 @@ static void diffgetput(const int addr_count, const int idx_cur, const int idx_fr
       for (int i = 0; i < count; i++) {
         // remember deleting the last line of the buffer
         buf_empty = curbuf->b_ml.ml_line_count == 1;
-        if (ml_delete(lnum, false) == OK) {
+        if (ml_delete(lnum) == OK) {
           added--;
         }
       }
@@ -3837,7 +3836,7 @@ static void diffgetput(const int addr_count, const int idx_cur, const int idx_fr
           // which results in inaccurate reporting of the byte count of
           // previous contents in buffer-update events.
           buf_empty = false;
-          ml_delete(2, false);
+          ml_delete(2);
         }
       }
       linenr_T new_count = dp->df_count[idx_to] + added;

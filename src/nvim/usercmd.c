@@ -36,9 +36,7 @@
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "usercmd.c.generated.h"
-#endif
+#include "usercmd.c.generated.h"
 
 garray_T ucmds = { 0, 0, sizeof(ucmd_T), 4, NULL };
 
@@ -1055,7 +1053,9 @@ theend:
 void ex_comclear(exarg_T *eap)
 {
   uc_clear(&ucmds);
-  uc_clear(&curbuf->b_ucmds);
+  if (curbuf != NULL) {
+    uc_clear(&curbuf->b_ucmds);
+  }
 }
 
 void free_ucmd(ucmd_T *cmd)

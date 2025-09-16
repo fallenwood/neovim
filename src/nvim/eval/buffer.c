@@ -36,9 +36,7 @@ typedef struct {
   int cob_save_VIsual_active;
 } cob_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "eval/buffer.c.generated.h"
-#endif
+#include "eval/buffer.c.generated.h"
 
 /// Find a buffer by number or exact name.
 buf_T *find_buffer(typval_T *avar)
@@ -382,8 +380,8 @@ static void buf_win_common(typval_T *argvars, typval_T *rettv, bool get_nr)
   int winid;
   bool found_buf = false;
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    winnr += win_has_winnr(wp);
-    if (wp->w_buffer == buf) {
+    winnr += win_has_winnr(wp, curtab);
+    if (wp->w_buffer == buf && (!get_nr || win_has_winnr(wp, curtab))) {
       found_buf = true;
       winid = wp->handle;
       break;
@@ -455,7 +453,7 @@ void f_deletebufline(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   }
 
   for (linenr_T lnum = first; lnum <= last; lnum++) {
-    ml_delete(first, true);
+    ml_delete_flags(first, ML_DEL_MESSAGE);
   }
 
   FOR_ALL_TAB_WINDOWS(tp, wp) {

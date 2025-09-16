@@ -33,7 +33,7 @@ jobs:
     env:
       CC: clang
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
 
       - name: Install stylua
@@ -87,7 +87,7 @@ jobs:
     env:
       CC: clang
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - name: Build third-party deps
         run: |
@@ -124,8 +124,6 @@ jobs:
             build: { flavor: puc-lua }
           - test: oldtest
             build: { flavor: tsan }
-          - test: unittest
-            build: { runner: ubuntu-24.04-arm }
           - test: oldtest
             build: { runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.build.runner }}
@@ -134,7 +132,7 @@ jobs:
       CC: ${{ matrix.build.cc }}
       NVIM_TEST_INTEG: ${{ matrix.build.flavor == 'release' && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
         with:
           install_flags: "--test"
@@ -206,20 +204,68 @@ jobs:
         name: Show logs
         run: cat $(find "$LOG_DIR" -type f)
 
-  zig-build:
+  # TODO: matrixify
+  zig-build-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    name: build using zig build
+    name: build using zig build (linux)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
+      - run: sudo apt-get install -y inotify-tools
+
+      # This is a workaround for "zig fetch" being unable to decompress lua-dev-deps.tar.gz
+      # As the hash in build.zig.zon is calculated after decompression, we can preload the cache instead.
+      # This is hopefully fixed for zig 0.15.2, see https://github.com/ziglang/zig/issues/24916
+      - run: curl -L https://github.com/neovim/deps/raw/06ef2b58b0876f8de1a3f5a710473dcd7afff251/opt/lua-dev-deps.tar.gz | zcat > lua-dev-deps.tar
+      - run: zig fetch lua-dev-deps.tar
+
+      - run: zig build test_nlua0
+      - run: zig build nvim && ./zig-out/bin/nvim --version
+      - run: zig build unittest
+      - run: zig build functionaltest
+      # `zig build nvim` uses a lua script for doctags in order to support cross-compiling
+      # compare with the builtin generator that they match
+      - run: cd runtime; ../zig-out/bin/nvim -u NONE -i NONE -e --headless -c "helptags ++t doc" -c quit
+      - run: diff -u runtime/doc/tags zig-out/runtime/doc/tags
+
+  zig-build-macos-15:
+    runs-on: macos-15
+    timeout-minutes: 45
+    name: build using zig build (macos 15)
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
-         version: 0.14.1
-      - run: sudo apt-get install -y inotify-tools
+          version: 0.15.1
+
+      - run: curl -L https://github.com/neovim/deps/raw/06ef2b58b0876f8de1a3f5a710473dcd7afff251/opt/lua-dev-deps.tar.gz | zcat > lua-dev-deps.tar
+      - run: zig fetch lua-dev-deps.tar
+
+      - run: zig build test_nlua0 -Dluajit=false
+      - run: zig build nvim_bin -Dluajit=false && ./zig-out/bin/nvim --version
+      - run: zig build functionaltest -Dluajit=false
+
+  zig-build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    name: build using zig build (windows)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - run: curl -L https://github.com/neovim/deps/raw/06ef2b58b0876f8de1a3f5a710473dcd7afff251/opt/lua-dev-deps.tar.gz -O
+      - run: 7z x lua-dev-deps.tar.gz
+      - run: zig fetch lua-dev-deps.tar
       - run: zig build test_nlua0
-      - run: zig build nvim_bin && ./zig-out/bin/nvim --version
-      - run: zig build unittest
-      - run: zig build functionaltest
+      - run: zig build nvim_bin
+      - run: ./zig-out/bin/nvim --version
+      # TODO: support entire test suite
+      - run: zig build functionaltest -- test/functional/api/buffer_spec.lua
 
   zig-build-cross:
     runs-on: ubuntu-24.04
@@ -243,7 +289,7 @@ jobs:
     env:
       CC: gcc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
 
       - name: Install dependencies

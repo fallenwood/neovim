@@ -315,9 +315,7 @@ typedef enum {
   FILTERMAP_FOREACH,
 } filtermap_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "eval.c.generated.h"
-#endif
+#include "eval.c.generated.h"
 
 static uint64_t last_timer_id = 1;
 static PMap(uint64_t) timers = MAP_INIT;
@@ -2555,7 +2553,6 @@ void clear_evalarg(evalarg_T *evalarg, exarg_T *eap)
 /// Handle zero level expression.
 /// This calls eval1() and handles error message and nextcmd.
 /// Put the result in "rettv" when returning OK and "evaluate" is true.
-/// Note: "rettv.v_lock" is not set.
 ///
 /// @param evalarg  can be NULL, &EVALARG_EVALUATE or a pointer.
 ///
@@ -2652,11 +2649,11 @@ int eval0_simple_funccal(char *arg, typval_T *rettv, exarg_T *eap, evalarg_T *co
 /// "arg" must point to the first non-white of the expression.
 /// "arg" is advanced to the next non-white after the recognized expression.
 ///
-/// Note: "rettv.v_lock" is not set.
-///
 /// @return  OK or FAIL.
 int eval1(char **arg, typval_T *rettv, evalarg_T *const evalarg)
 {
+  CLEAR_POINTER(rettv);
+
   // Get the first variable.
   if (eval2(arg, rettv, evalarg) == FAIL) {
     return FAIL;
@@ -5415,8 +5412,6 @@ static void filter_map_dict(dict_T *d, filtermap_T filtermap, const char *func_n
     d_ret = rettv->vval.v_dict;
   }
 
-  vimvars[VV_KEY].vv_type = VAR_STRING;
-
   const VarLockStatus prev_lock = d->dv_lock;
   if (d->dv_lock == VAR_UNLOCKED) {
     d->dv_lock = VAR_LOCKED;
@@ -5428,11 +5423,11 @@ static void filter_map_dict(dict_T *d, filtermap_T filtermap, const char *func_n
             || var_check_ro(di->di_flags, arg_errmsg, TV_TRANSLATE))) {
       break;
     }
-    vimvars[VV_KEY].vv_str = xstrdup(di->di_key);
+    set_vim_var_string(VV_KEY, di->di_key, -1);
     typval_T newtv;
     bool rem;
     int r = filter_map_one(&di->di_tv, expr, filtermap, &newtv, &rem);
-    tv_clear(&vimvars[VV_KEY].vv_tv);
+    tv_clear(get_vim_var_tv(VV_KEY));
     if (r == FAIL || did_emsg) {
       tv_clear(&newtv);
       break;
@@ -5484,7 +5479,8 @@ static void filter_map_blob(blob_T *blob_arg, filtermap_T filtermap, typval_T *e
     b_ret = rettv->vval.v_blob;
   }
 
-  vimvars[VV_KEY].vv_type = VAR_NUMBER;
+  // set_vim_var_nr() doesn't set the type
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
 
   const VarLockStatus prev_lock = b->bv_lock;
   if (b->bv_lock == 0) {
@@ -5498,7 +5494,7 @@ static void filter_map_blob(blob_T *blob_arg, filtermap_T filtermap, typval_T *e
       .v_lock = VAR_UNLOCKED,
       .vval.v_number = val,
     };
-    vimvars[VV_KEY].vv_nr = idx;
+    set_vim_var_nr(VV_KEY, idx);
     typval_T newtv;
     bool rem;
     if (filter_map_one(&tv, expr, filtermap, &newtv, &rem) == FAIL
@@ -5535,7 +5531,8 @@ static void filter_map_string(const char *str, filtermap_T filtermap, typval_T *
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;
 
-  vimvars[VV_KEY].vv_type = VAR_NUMBER;
+  // set_vim_var_nr() doesn't set the type
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
 
   garray_T ga;
   ga_init(&ga, (int)sizeof(char), 80);
@@ -5601,8 +5598,8 @@ static void filter_map_list(list_T *l, filtermap_T filtermap, const char *func_n
     tv_list_alloc_ret(rettv, kListLenUnknown);
     l_ret = rettv->vval.v_list;
   }
-
-  vimvars[VV_KEY].vv_type = VAR_NUMBER;
+  // set_vim_var_nr() doesn't set the type
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
 
   const VarLockStatus prev_lock = tv_list_locked(l);
   if (tv_list_locked(l) == VAR_UNLOCKED) {
@@ -5615,7 +5612,7 @@ static void filter_map_list(list_T *l, filtermap_T filtermap, const char *func_n
         && value_check_lock(TV_LIST_ITEM_TV(li)->v_lock, arg_errmsg, TV_TRANSLATE)) {
       break;
     }
-    vimvars[VV_KEY].vv_nr = idx;
+    set_vim_var_nr(VV_KEY, idx);
     typval_T newtv;
     bool rem;
     if (filter_map_one(TV_LIST_ITEM_TV(li), expr, filtermap, &newtv, &rem) == FAIL) {
@@ -5685,15 +5682,16 @@ static void filter_map(typval_T *argvars, typval_T *rettv, filtermap_T filtermap
   }
 
   typval_T save_val;
+  typval_T save_key;
+
   prepare_vimvar(VV_VAL, &save_val);
+  prepare_vimvar(VV_KEY, &save_key);
 
   // We reset "did_emsg" to be able to detect whether an error
   // occurred during evaluation of the expression.
   int save_did_emsg = did_emsg;
   did_emsg = false;
 
-  typval_T save_key;
-  prepare_vimvar(VV_KEY, &save_key);
   if (argvars[0].v_type == VAR_DICT) {
     filter_map_dict(argvars[0].vval.v_dict, filtermap, func_name,
                     arg_errmsg, expr, rettv);
@@ -6968,14 +6966,23 @@ void set_vcount(int64_t count, int64_t count1, bool set_prevcount)
   vimvars[VV_COUNT1].vv_nr = count1;
 }
 
+/// Set type of v: variable to the given type.
+///
+/// @param[in]  idx  Index of variable to set.
+/// @param[in]  type  Type to set to.
+void set_vim_var_type(const VimVarIndex idx, const VarType type)
+{
+  vimvars[idx].vv_type = type;
+}
+
 /// Set number v: variable to the given value
+/// Note that this does not set the type, use set_vim_var_type() for that.
 ///
 /// @param[in]  idx  Index of variable to set.
 /// @param[in]  val  Value to set to.
 void set_vim_var_nr(const VimVarIndex idx, const varnumber_T val)
 {
   tv_clear(&vimvars[idx].vv_tv);
-  vimvars[idx].vv_type = VAR_NUMBER;
   vimvars[idx].vv_nr = val;
 }
 

@@ -843,32 +843,29 @@ vim.ui_detach({ns})                                          *vim.ui_detach()*
       • {ns}  (`integer`) Namespace ID
 
 vim.wait({time}, {callback}, {interval}, {fast_only})             *vim.wait()*
-    Wait for {time} in milliseconds until {callback} returns `true`.
+    Waits up to `time` milliseconds, until `callback` returns `true`
+    (success). Executes `callback` immediately, then at intervals of
+    approximately `interval` milliseconds (default 200). Returns all
+    `callback` results on success.
 
-    Executes {callback} immediately and at approximately {interval}
-    milliseconds (default 200). Nvim still processes other events during this
-    time.
-
-    Cannot be called while in an |api-fast| event.
+    Nvim processes other events while waiting. Cannot be called during an
+    |api-fast| event.
 
     Examples: >lua
-        ---
-        -- Wait for 100 ms, allowing other events to process
-        vim.wait(100, function() end)
+        -- Wait for 100 ms, allowing other events to process.
+        vim.wait(100)
 
-        ---
-        -- Wait for 100 ms or until global variable set.
-        vim.wait(100, function() return vim.g.waiting_for_var end)
+        -- Wait up to 1000 ms or until `vim.g.foo` is true, at intervals of ~500 ms.
+        vim.wait(1000, function() return vim.g.foo end, 500)
 
-        ---
-        -- Wait for 1 second or until global variable set, checking every ~500 ms
-        vim.wait(1000, function() return vim.g.waiting_for_var end, 500)
+        -- Wait up to 100 ms or until `vim.g.foo` is true, and get the callback results.
+        local ok, rv1, rv2, rv3 = vim.wait(100, function()
+          return vim.g.foo, 'a', 42, { ok = { 'yes' } }
+        end)
 
-        ---
-        -- Schedule a function to set a value in 100ms
+        -- Schedule a function to set a value in 100ms. This would wait 10s if blocked, but actually
+        -- only waits 100ms because `vim.wait` processes other events while waiting.
         vim.defer_fn(function() vim.g.timer_result = true end, 100)
-
-        -- Would wait ten seconds if results blocked. Actually only waits  100 ms
         if vim.wait(10000, function() return vim.g.timer_result end) then
           print('Only waiting a little bit of time!')
         end
@@ -886,10 +883,10 @@ vim.wait({time}, {callback}, {interval}, {fast_only})             *vim.wait()*
     Return (multiple): ~
         (`boolean`)
         (`-1|-2?`)
-        • If {callback} returns `true` during the {time}: `true, nil`
-        • If {callback} never returns `true` during the {time}: `false, -1`
-        • If {callback} is interrupted during the {time}: `false, -2`
-        • If {callback} errors, the error is raised.
+        • If callback returns `true` before timeout: `true, nil, ...`
+        • On timeout: `false, -1`
+        • On interrupt: `false, -2`
+        • On error: the error is raised.
 
 
 ==============================================================================
@@ -2060,12 +2057,12 @@ vim.tbl_extend({behavior}, {...})                           *vim.tbl_extend()*
     See also: ~
       • |extend()|
 
-vim.tbl_filter({func}, {t})                                 *vim.tbl_filter()*
+vim.tbl_filter({fn}, {t})                                   *vim.tbl_filter()*
     Filter a table using a predicate function
 
     Parameters: ~
-      • {func}  (`function`) Function
-      • {t}     (`table`) Table
+      • {fn}  (`function`) Function
+      • {t}   (`table`) Table
 
     Return: ~
         (`any[]`) Table of filtered values
@@ -2113,12 +2110,14 @@ vim.tbl_keys({t})                                             *vim.tbl_keys()*
       • From
         https://github.com/premake/premake-core/blob/master/src/base/table.lua
 
-vim.tbl_map({func}, {t})                                       *vim.tbl_map()*
-    Apply a function to all values of a table.
+vim.tbl_map({fn}, {t})                                         *vim.tbl_map()*
+    Applies function `fn` to all values of table `t`, in `pairs()` iteration
+    order (which is not guaranteed to be stable, even when the data doesn't
+    change).
 
     Parameters: ~
-      • {func}  (`fun(value: T): any`) Function
-      • {t}     (`table<any, T>`) Table
+      • {fn}  (`fun(value: T): any`) Function
+      • {t}   (`table<any, T>`) Table
 
     Return: ~
         (`table`) Table of transformed values
@@ -3345,7 +3344,7 @@ JSON-encoded strings. Supports |vim.NIL| and |vim.empty_dict()|.
 
 
 vim.json.decode({str}, {opts})                             *vim.json.decode()*
-    Decodes (or "unpacks") the JSON-encoded {str} to a Lua object.
+    Decodes (or "unpacks") stringified JSON to a Lua object.
     • Decodes JSON "null" as |vim.NIL| (controllable by {opts}, see below).
     • Decodes empty object as |vim.empty_dict()|.
     • Decodes empty array as `{}` (empty Lua table).
@@ -3368,13 +3367,32 @@ vim.json.decode({str}, {opts})                             *vim.json.decode()*
         (`any`)
 
 vim.json.encode({obj}, {opts})                             *vim.json.encode()*
-    Encodes (or "packs") Lua object {obj} as JSON in a Lua string.
+    Encodes (or "packs") a Lua object to stringified JSON.
+
+    Example: use the `indent` flag to implement a basic 'formatexpr' for JSON,
+    so you can use |gq| with a motion to format JSON in a buffer. (The motion
+    must operate on a valid JSON object.) >lua
+        function _G.fmt_json()
+          local indent = vim.bo.expandtab and (' '):rep(vim.o.shiftwidth) or '\t'
+          local lines = vim.api.nvim_buf_get_lines(0, vim.v.lnum - 1, vim.v.lnum + vim.v.count - 1, true)
+          local o = vim.json.decode(table.concat(lines, '\n'))
+          local stringified = vim.json.encode(o, { indent = indent })
+          lines = vim.split(stringified, '\n')
+          vim.api.nvim_buf_set_lines(0, vim.v.lnum - 1, vim.v.count, true, lines)
+        end
+        vim.o.formatexpr = 'v:lua.fmt_json()'
+<
 
     Parameters: ~
       • {obj}   (`any`)
       • {opts}  (`table<string,any>?`) Options table with keys:
                 • escape_slash: (boolean) (default false) Escape slash
                   characters "/" in string values.
+                • indent: (string) (default "") String used for indentation at
+                  each nesting level. If non-empty enables newlines and a
+                  space after colons.
+                • sort_keys: (boolean) (default false) Sort object keys in
+                  alphabetical order.
 
     Return: ~
         (`string`)
@@ -3929,7 +3947,7 @@ vim.net.request({url}, {opts}, {on_response})              *vim.net.request()*
 
     This function operates in one mode:
     • Asynchronous (non-blocking): Returns immediately and passes the response
-      object to the provided `on_response` handler on completetion.
+      object to the provided `on_response` handler on completion.
 
     Parameters: ~
       • {url}          (`string`) The URL for the request.
@@ -3942,11 +3960,241 @@ vim.net.request({url}, {opts}, {on_response})              *vim.net.request()*
                          Response Object will be `true` instead of the
                          response body.
       • {on_response}  (`fun(err?: string, response?: { body: string|boolean })`)
-                       Callback invoked on request completetion. The `body`
+                       Callback invoked on request completion. The `body`
                        field in the response object contains the raw response
                        data (text or binary). Called with (err, nil) on
                        failure, or (nil, { body = string|boolean }) on
                        success.
+
+
+==============================================================================
+Lua module: vim.pos                                                  *vim.pos*
+
+EXPERIMENTAL: This API may change in the future. Its semantics are not yet
+finalized. Subscribe to https://github.com/neovim/neovim/issues/25509 to stay
+updated or contribute to its development.
+
+Provides operations to compare, calculate, and convert positions represented
+by |vim.Pos| objects.
+
+
+*vim.Pos*
+    Represents a well-defined position.
+
+    A |vim.Pos| object contains the {row} and {col} coordinates of a position.
+    To create a new |vim.Pos| object, call `vim.pos()`.
+
+    Example: >lua
+        local pos1 = vim.pos(3, 5)
+        local pos2 = vim.pos(4, 0)
+
+        -- Operators are overloaded for comparing two `vim.Pos` objects.
+        if pos1 < pos2 then
+          print("pos1 comes before pos2")
+        end
+
+        if pos1 ~= pos2 then
+          print("pos1 and pos2 are different positions")
+        end
+<
+
+    It may include optional fields that enable additional capabilities, such
+    as format conversions.
+
+    Fields: ~
+      • {row}         (`integer`) 0-based byte index.
+      • {col}         (`integer`) 0-based byte index.
+      • {buf}?        (`integer`) Optional buffer handle.
+
+                      When specified, it indicates that this position belongs
+                      to a specific buffer. This field is required when
+                      performing position conversions.
+      • {to_lsp}      (`fun(pos: vim.Pos, position_encoding: lsp.PositionEncodingKind)`)
+                      See |Pos:to_lsp()|.
+      • {lsp}         (`fun(buf: integer, pos: lsp.Position, position_encoding: lsp.PositionEncodingKind)`)
+                      See |Pos:lsp()|.
+      • {to_cursor}   (`fun(pos: vim.Pos): [integer, integer]`) See
+                      |Pos:to_cursor()|.
+      • {cursor}      (`fun(pos: [integer, integer])`) See |Pos:cursor()|.
+      • {to_extmark}  (`fun(pos: vim.Pos): [integer, integer]`) See
+                      |Pos:to_extmark()|.
+      • {extmark}     (`fun(pos: [integer, integer])`) See |Pos:extmark()|.
+
+
+Pos:cursor({pos})                                               *Pos:cursor()*
+    Creates a new |vim.Pos| from cursor position.
+
+    Parameters: ~
+      • {pos}  (`[integer, integer]`)
+
+Pos:extmark({pos})                                             *Pos:extmark()*
+    Creates a new |vim.Pos| from extmark position.
+
+    Parameters: ~
+      • {pos}  (`[integer, integer]`)
+
+Pos:lsp({buf}, {pos}, {position_encoding})                         *Pos:lsp()*
+    Creates a new |vim.Pos| from `lsp.Position`.
+
+    Example: >lua
+        local buf = vim.api.nvim_get_current_buf()
+        local lsp_pos = {
+          line = 3,
+          character = 5
+        }
+
+        -- `buf` is mandatory, as LSP positions are always associated with a buffer.
+        local pos = vim.pos.lsp(buf, lsp_pos, 'utf-16')
+<
+
+    Parameters: ~
+      • {buf}                (`integer`)
+      • {pos}                (`lsp.Position`)
+      • {position_encoding}  (`lsp.PositionEncodingKind`)
+
+Pos:to_cursor({pos})                                         *Pos:to_cursor()*
+    Converts |vim.Pos| to cursor position.
+
+    Parameters: ~
+      • {pos}  (`vim.Pos`) See |vim.Pos|.
+
+    Return: ~
+        (`[integer, integer]`)
+
+Pos:to_extmark({pos})                                       *Pos:to_extmark()*
+    Converts |vim.Pos| to extmark position.
+
+    Parameters: ~
+      • {pos}  (`vim.Pos`) See |vim.Pos|.
+
+    Return: ~
+        (`[integer, integer]`)
+
+Pos:to_lsp({pos}, {position_encoding})                          *Pos:to_lsp()*
+    Converts |vim.Pos| to `lsp.Position`.
+
+    Example: >lua
+        -- `buf` is required for conversion to LSP position.
+        local buf = vim.api.nvim_get_current_buf()
+        local pos = vim.pos(3, 5, { buf = buf })
+
+        -- Convert to LSP position, you can call it in a method style.
+        local lsp_pos = pos:lsp('utf-16')
+<
+
+    Parameters: ~
+      • {pos}                (`vim.Pos`) See |vim.Pos|.
+      • {position_encoding}  (`lsp.PositionEncodingKind`)
+
+
+==============================================================================
+Lua module: vim.range                                              *vim.range*
+
+EXPERIMENTAL: This API may change in the future. Its semantics are not yet
+finalized. Subscribe to https://github.com/neovim/neovim/issues/25509 to stay
+updated or contribute to its development.
+
+Provides operations to compare, calculate, and convert ranges represented by
+|vim.Range| objects.
+
+
+*vim.Range*
+    Represents a well-defined range.
+
+    A |vim.Range| object contains a {start} and a {end_} position(see
+    |vim.Pos|). Note that the {end_} position is exclusive. To create a new
+    |vim.Range| object, call `vim.range()`.
+
+    Example: >lua
+        local pos1 = vim.pos(3, 5)
+        local pos2 = vim.pos(4, 0)
+
+        -- Create a range from two positions.
+        local range1 = vim.range(pos1, pos2)
+        -- Or create a range from four integers representing start and end positions.
+        local range2 = vim.range(3, 5, 4, 0)
+
+        -- Because `vim.Range` is end exclusive, `range1` and `range2` both represent
+        -- a range starting at the row 3, column 5 and ending at where the row 3 ends.
+
+        -- Operators are overloaded for comparing two `vim.Pos` objects.
+        if range1 == range2 then
+          print("range1 and range2 are the same range")
+        end
+<
+
+    It may include optional fields that enable additional capabilities, such
+    as format conversions. Note that the {start} and {end_} positions need to
+    have the same optional fields.
+
+    Fields: ~
+      • {start}      (`vim.Pos`) Start position.
+      • {end_}       (`vim.Pos`) End position, exclusive.
+      • {has}        (`fun(outer: vim.Range, inner: vim.Range): boolean`) See
+                     |Range:has()|.
+      • {intersect}  (`fun(r1: vim.Range, r2: vim.Range): vim.Range?`) See
+                     |Range:intersect()|.
+      • {to_lsp}     (`fun(range: vim.Range, position_encoding: lsp.PositionEncodingKind)`)
+                     See |Range:to_lsp()|.
+      • {lsp}        (`fun(buf: integer, range: lsp.Range, position_encoding: lsp.PositionEncodingKind)`)
+                     See |Range:lsp()|.
+
+
+Range:has({outer}, {inner})                                      *Range:has()*
+    Checks whether {outer} range contains {inner} range.
+
+    Parameters: ~
+      • {outer}  (`vim.Range`) See |vim.Range|.
+      • {inner}  (`vim.Range`) See |vim.Range|.
+
+    Return: ~
+        (`boolean`) `true` if {outer} range fully contains {inner} range.
+
+Range:intersect({r1}, {r2})                                *Range:intersect()*
+    Computes the common range shared by the given ranges.
+
+    Parameters: ~
+      • {r1}  (`vim.Range`) First range to intersect. See |vim.Range|.
+      • {r2}  (`vim.Range`) Second range to intersect. See |vim.Range|.
+
+    Return: ~
+        (`vim.Range?`) range that is present inside both `r1` and `r2`. `nil`
+        if such range does not exist. See |vim.Range|.
+
+Range:lsp({buf}, {range}, {position_encoding})                   *Range:lsp()*
+    Creates a new |vim.Range| from `lsp.Range`.
+
+    Example: >lua
+        local buf = vim.api.nvim_get_current_buf()
+        local lsp_range = {
+          ['start'] = { line = 3, character = 5 },
+          ['end'] = { line = 4, character = 0 }
+        }
+
+        -- `buf` is mandatory, as LSP ranges are always associated with a buffer.
+        local range = vim.range.lsp(buf, lsp_range, 'utf-16')
+<
+
+    Parameters: ~
+      • {buf}                (`integer`)
+      • {range}              (`lsp.Range`)
+      • {position_encoding}  (`lsp.PositionEncodingKind`)
+
+Range:to_lsp({range}, {position_encoding})                    *Range:to_lsp()*
+    Converts |vim.Range| to `lsp.Range`.
+
+    Example: >lua
+        -- `buf` is required for conversion to LSP range.
+        local buf = vim.api.nvim_get_current_buf()
+        local range = vim.range(3, 5, 4, 0, { buf = buf })
+
+        -- Convert to LSP range, you can call it in a method style.
+        local lsp_range = range:to_lsp('utf-16')
+<
+
+    Parameters: ~
+      • {range}              (`vim.Range`) See |vim.Range|.
+      • {position_encoding}  (`lsp.PositionEncodingKind`)
 
 
 ==============================================================================
@@ -4155,7 +4403,8 @@ vim.snippet.expand({input})                             *vim.snippet.expand()*
     https://microsoft.github.io/language-server-protocol/specification/#snippet_syntax
     for the specification of valid input.
 
-    Tabstops are highlighted with |hl-SnippetTabstop|.
+    Tabstops are highlighted with |hl-SnippetTabstop| and
+    |hl-SnippetTabstopActive|.
 
     Parameters: ~
       • {input}  (`string`)
@@ -4172,7 +4421,7 @@ vim.snippet.jump({direction})                             *vim.snippet.jump()*
            else
              return '<Tab>'
            end
-         end, { descr = '...', expr = true, silent = true })
+         end, { desc = '...', expr = true, silent = true })
 <
 
     Parameters: ~
@@ -4372,7 +4621,7 @@ vim.system({cmd}, {opts}, {on_exit})                            *vim.system()*
                    return of SystemObj:wait().
 
     Overloads: ~
-      • `fun(cmd: string, on_exit: fun(out: vim.SystemCompleted)): vim.SystemObj`
+      • `fun(cmd: string[], on_exit: fun(out: vim.SystemCompleted)): vim.SystemObj`
 
     Return: ~
         (`vim.SystemObj`) See |vim.SystemObj|.
@@ -4906,39 +5155,6 @@ vim.version.range({spec})                                *vim.version.range()*
 
     Return: ~
         (`vim.VersionRange?`) See |vim.VersionRange|.
-
-
-==============================================================================
-Lua module: tohtml                                                *vim.tohtml*
-
-
-:[range]TOhtml {file}                                                *:TOhtml*
-Converts the buffer shown in the current window to HTML, opens the generated
-HTML in a new split window, and saves its contents to {file}. If {file} is not
-given, a temporary file (created by |tempname()|) is used.
-
-
-tohtml.tohtml({winid}, {opt})                         *tohtml.tohtml.tohtml()*
-    Converts the buffer shown in the window {winid} to HTML and returns the
-    output as a list of string.
-
-    Parameters: ~
-      • {winid}  (`integer?`) Window to convert (defaults to current window)
-      • {opt}    (`table?`) Optional parameters.
-                 • {title}? (`string|false`, default: buffer name) Title tag
-                   to set in the generated HTML code.
-                 • {number_lines}? (`boolean`, default: `false`) Show line
-                   numbers.
-                 • {font}? (`string[]|string`, default: `guifont`) Fonts to
-                   use.
-                 • {width}? (`integer`, default: 'textwidth' if non-zero or
-                   window width otherwise) Width used for items which are
-                   either right aligned or repeat a character infinitely.
-                 • {range}? (`integer[]`, default: entire buffer) Range of
-                   rows to use.
-
-    Return: ~
-        (`string[]`)
 
 
 ==============================================================================

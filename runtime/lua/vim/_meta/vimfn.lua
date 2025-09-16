@@ -3075,14 +3075,14 @@ function vim.fn.getcmdscreenpos() end
 --- Returns an empty string otherwise.
 --- Also see |getcmdpos()|, |setcmdpos()| and |getcmdline()|.
 ---
---- @return ':'|'>'|'/'|'?'|'@'|'-'|'='
+--- @return ':'|'>'|'/'|'?'|'@'|'-'|'='|''
 function vim.fn.getcmdtype() end
 
 --- Return the current |command-line-window| type. Possible return
 --- values are the same as |getcmdtype()|. Returns an empty string
 --- when not in the command-line window.
 ---
---- @return ':'|'>'|'/'|'?'|'@'|'-'|'='
+--- @return ':'|'>'|'/'|'?'|'@'|'-'|'='|''
 function vim.fn.getcmdwintype() end
 
 --- Return a list of command-line completion matches. The String
@@ -4908,22 +4908,27 @@ function vim.fn.islocked(expr) end
 --- @return 0|1
 function vim.fn.isnan(expr) end
 
---- Return a |List| with all the key-value pairs of {dict}.  Each
---- |List| item is a list with two items: the key of a {dict}
---- entry and the value of this entry.  The |List| is in arbitrary
---- order.  Also see |keys()| and |values()|.
---- Example: >vim
----   for [key, value] in items(mydict)
----      echo key .. ': ' .. value
----   endfor
---- <
---- A List or a String argument is also supported.  In these
---- cases, items() returns a List with the index and the value at
---- the index.
+--- Return a |List| with all key/index and value pairs of {expr}.
+--- Each |List| item is a list with two items:
+--- - for a |Dict|: the key and the value
+--- - for a |List| or |String|: the index and the value
+--- The returned |List| is in arbitrary order for a |Dict|,
+--- otherwise it's in ascending order of the index.
 ---
---- @param dict table
+--- Also see |keys()| and |values()|.
+---
+--- Example: >vim
+---   let mydict = #{a: 'red', b: 'blue'}
+---   for [key, value] in items(mydict)
+---      echo $"{key} = {value}"
+---   endfor
+---   echo items([1, 2, 3])
+---   echo items("foobar")
+--- <
+---
+--- @param expr table|string
 --- @return any
-function vim.fn.items(dict) end
+function vim.fn.items(expr) end
 
 --- @deprecated
 --- Obsolete name for |chanclose()|
@@ -5918,9 +5923,6 @@ function vim.fn.matchend(expr, pat, start, count) end
 ---     given sequence.
 ---     limit  Maximum number of matches in {list} to be
 ---     returned.  Zero means no limit.
----     camelcase  Use enhanced camel case scoring making results
----     better suited for completion related to
----     programming languages.  Defaults to v:true.
 ---
 --- If {list} is a list of dictionaries, then the optional {dict}
 --- argument supports the following additional items:
@@ -9476,8 +9478,8 @@ function vim.fn.stdioopen(opts) end
 --- log          String  Logs directory (for use by plugins too).
 --- run          String  Run directory: temporary, local storage
 ---          for sockets, named pipes, etc.
---- state        String  Session state directory: storage for file
----          drafts, swap, undo, |shada|.
+--- state        String  Session state: storage for backupdir,
+---          file drafts, |shada|, swap, undo, 'viewdir'.
 ---
 --- Example: >vim
 ---   echo stdpath("config")
@@ -10833,7 +10835,6 @@ function vim.fn.wildmenumode() end
 
 --- Start wildcard expansion in the command-line, using the
 --- behavior defined by the 'wildmode' and 'wildoptions' settings.
---- See |cmdline-completion|.
 ---
 --- This function also enables completion in search patterns such
 --- as |/|, |?|, |:s|, |:g|, |:v| and |:vimgrep|.
@@ -10841,22 +10842,15 @@ function vim.fn.wildmenumode() end
 --- Unlike pressing 'wildchar' manually, this function does not
 --- produce a beep when no matches are found and generally
 --- operates more quietly.  This makes it suitable for triggering
---- completion automatically, such as from an |:autocmd|.
----         *cmdline-autocompletion*
---- Example: To make the completion menu pop up automatically as
---- you type on the command line, use: >vim
----   autocmd CmdlineChanged [:/\?] call wildtrigger()
----   set wildmode=noselect:lastused,full wildoptions=pum
---- <
---- To retain normal history navigation (up/down keys): >vim
----   cnoremap <Up>   <C-U><Up>
----   cnoremap <Down> <C-U><Down>
---- <
---- To set an option specifically when performing a search, e.g.
---- to set 'pumheight': >vim
----   autocmd CmdlineEnter [/\?] set pumheight=8
----   autocmd CmdlineLeave [/\?] set pumheight&
---- <
+--- completion automatically.
+---
+--- Note: After navigating command-line history, the first call to
+--- wildtrigger() is a no-op; a second call is needed to start
+--- expansion.  This is to support history navigation in
+--- command-line autocompletion.
+---
+--- See |cmdline-autocompletion|.
+---
 --- Return value is always 0.
 ---
 --- @return number

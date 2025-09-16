@@ -58,6 +58,7 @@
 #include "nvim/file_search.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
+#include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
 #include "nvim/getchar.h"
@@ -100,7 +101,6 @@
 #include "nvim/regexp_defs.h"
 #include "nvim/runtime.h"
 #include "nvim/runtime_defs.h"
-#include "nvim/search.h"
 #include "nvim/spell.h"
 #include "nvim/state_defs.h"
 #include "nvim/statusline.h"
@@ -115,9 +115,7 @@
 #include "nvim/window.h"
 #include "nvim/winfloat.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "buffer.c.generated.h"
-#endif
+#include "buffer.c.generated.h"
 
 static const char e_attempt_to_delete_buffer_that_is_in_use_str[]
   = N_("E937: Attempt to delete a buffer that is in use: %s");
@@ -159,12 +157,12 @@ static int read_buffer(bool read_stdin, exarg_T *eap, int flags)
   if (retval == OK) {
     // Delete the binary lines.
     while (--line_count >= 0) {
-      ml_delete(1, false);
+      ml_delete(1);
     }
   } else {
     // Delete the converted lines.
     while (curbuf->b_ml.ml_line_count > line_count) {
-      ml_delete(line_count, false);
+      ml_delete(line_count);
     }
   }
   // Put the cursor on the first line.
@@ -572,7 +570,7 @@ bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last, bool i
     }
     buf->b_locked--;
     buf->b_locked_split--;
-    if (abort_if_last && one_window(win)) {
+    if (abort_if_last && win != NULL && one_window(win, NULL)) {
       // Autocommands made this the only window.
       emsg(_(e_auabort));
       return false;
@@ -591,7 +589,7 @@ bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last, bool i
       }
       buf->b_locked--;
       buf->b_locked_split--;
-      if (abort_if_last && one_window(win)) {
+      if (abort_if_last && win != NULL && one_window(win, NULL)) {
         // Autocommands made this the only window.
         emsg(_(e_auabort));
         return false;
@@ -680,10 +678,6 @@ bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last, bool i
     return false;
   }
 
-  // Disable buffer-updates for the current buffer.
-  // No need to check `unload_buf`: in that case the function returned above.
-  buf_updates_unload(buf, false);
-
   if (win != NULL  // Avoid bogus clang warning.
       && win_valid_any_tab(win)
       && win->w_buffer == buf) {
@@ -764,7 +758,7 @@ void buf_clear(void)
   linenr_T line_count = curbuf->b_ml.ml_line_count;
   extmark_free_all(curbuf);   // delete any extmarks
   while (!(curbuf->b_ml.ml_flags & ML_EMPTY)) {
-    ml_delete(1, false);
+    ml_delete(1);
   }
   deleted_lines_mark(1, line_count);  // prepare for display
 }
@@ -790,6 +784,11 @@ void buf_freeall(buf_T *buf, int flags)
   bufref_T bufref;
   set_bufref(&bufref, buf);
 
+  buf_updates_unload(buf, false);
+  if (!bufref_valid(&bufref)) {
+    // on_detach callback deleted the buffer.
+    return;
+  }
   if ((buf->b_ml.ml_mfp != NULL)
       && apply_autocmds(EVENT_BUFUNLOAD, buf->b_fname, buf->b_fname, false, buf)
       && !bufref_valid(&bufref)) {
@@ -937,7 +936,7 @@ static void free_buffer_stuff(buf_T *buf, int free_flags)
   map_clear_mode(buf, MAP_ALL_MODES, true, true);   // clear local abbrevs
   XFREE_CLEAR(buf->b_start_fenc);
 
-  buf_updates_unload(buf, false);
+  buf_free_callbacks(buf);
 }
 
 /// Go to another buffer.  Handles the result of the ATTENTION dialog.
@@ -2477,12 +2476,12 @@ int ExpandBufnames(char *pat, int *num_file, char ***file, int options)
       } else {
         p = NULL;
         // first try matching with the short file name
-        if ((score = fuzzy_match_str(buf->b_sfname, pat)) != 0) {
+        if ((score = fuzzy_match_str(buf->b_sfname, pat)) != FUZZY_SCORE_NONE) {
           p = buf->b_sfname;
         }
         if (p == NULL) {
           // next try matching with the full path file name
-          if ((score = fuzzy_match_str(buf->b_ffname, pat)) != 0) {
+          if ((score = fuzzy_match_str(buf->b_ffname, pat)) != FUZZY_SCORE_NONE) {
             p = buf->b_ffname;
           }
         }

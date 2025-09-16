@@ -268,6 +268,7 @@ local extension = {
       or 'btm'
   end,
   bzl = 'bzl',
+  bxl = 'bzl',
   bazel = 'bzl',
   BUILD = 'bzl',
   mdh = 'c',
@@ -278,6 +279,7 @@ local extension = {
   c3t = 'c3',
   cabal = 'cabal',
   cairo = 'cairo',
+  cj = 'cangjie',
   capnp = 'capnp',
   cdc = 'cdc',
   cdl = 'cdl',
@@ -732,13 +734,10 @@ local extension = {
   luau = 'luau',
   lrc = 'lyrics',
   m = detect.m,
-  at = 'm4',
+  at = 'config',
   mc = detect.mc,
   quake = 'm3quake',
-  m4 = function(path, _bufnr)
-    local pathl = path:lower()
-    return not (pathl:find('html%.m4$') or pathl:find('fvwm2rc')) and 'm4' or nil
-  end,
+  m4 = detect.m4,
   eml = 'mail',
   mk = detect.make,
   mak = detect.make,
@@ -1393,6 +1392,8 @@ local extension = {
   yaml = 'yaml',
   eyaml = 'yaml',
   mplstyle = 'yaml',
+  kyaml = 'yaml',
+  kyml = 'yaml',
   grc = detect_line1('<%?xml', 'xml', 'yaml'),
   yang = 'yang',
   yuck = 'yuck',
@@ -1515,6 +1516,7 @@ local filename = {
   ['.trans'] = 'clojure',
   ['CMakeLists.txt'] = 'cmake',
   ['CMakeCache.txt'] = 'cmakecache',
+  ['CODEOWNERS'] = 'codeowners',
   ['.cling_history'] = 'cpp',
   ['.alias'] = detect.csh,
   ['.cshrc'] = detect.csh,
@@ -2235,6 +2237,7 @@ local pattern = {
   },
   ['/%.'] = {
     ['/%.aws/credentials$'] = 'confini',
+    ['/%.aws/cli/alias$'] = 'confini',
     ['/%.gitconfig%.d/'] = starsetf('gitconfig'),
     ['/%.gnupg/gpg%.conf$'] = 'gpg',
     ['/%.gnupg/options$'] = 'gpg',
@@ -2243,6 +2246,7 @@ local pattern = {
     ['/%.pinforc$'] = 'pinfo',
     ['/%.cargo/credentials$'] = 'toml',
     ['/%.init/.*%.override$'] = 'upstart',
+    ['/%.kube/kuberc$'] = 'yaml',
   },
   ['calendar/'] = {
     ['/%.calendar/'] = starsetf('calendar'),
@@ -2345,7 +2349,7 @@ local pattern = {
   },
   ['require'] = {
     ['%-requirements%.txt$'] = 'requirements',
-    ['requirements%-.*%.txt$'] = 'requirements',
+    ['^requirements%-.*%.txt$'] = 'requirements',
     ['^requirements/.*%.txt$'] = 'requirements',
     ['^requires/.*%.txt$'] = 'requirements',
   },
@@ -2491,7 +2495,6 @@ local pattern = {
       end
     end,
     ['^hg%-editor%-.*%.txt$'] = 'hgcommit',
-    ['%.html%.m4$'] = 'htmlm4',
     ['^JAM.*%.'] = starsetf('jam'),
     ['^Prl.*%.'] = starsetf('jam'),
     ['^${HOME}/.*/Code/User/.*%.json$'] = 'jsonc',
@@ -2528,6 +2531,8 @@ local pattern = {
     [',v$'] = 'rcs',
     ['^svn%-commit.*%.tmp$'] = 'svn',
     ['%.swift%.gyb$'] = 'swiftgyb',
+    ['^vivado.*%.jou$'] = 'tcl',
+    ['^vivado.*%.log$'] = 'tcl',
     ['termcap'] = starsetf(function(_path, _bufnr)
       return require('vim.filetype.detect').printcap('term')
     end),

@@ -211,7 +211,9 @@ WORK IN PROGRESS built-in plugin manager! Early testing of existing features
 is appreciated, but expect breaking changes without notice.
 
 Manages plugins only in a dedicated *vim.pack-directory* (see |packages|):
-`$XDG_DATA_HOME/nvim/site/pack/core/opt`. Plugin's subdirectory name matches
+`$XDG_DATA_HOME/nvim/site/pack/core/opt`. `$XDG_DATA_HOME/nvim/site` needs to
+be part of 'packpath'. It usually is, but might not be in cases like |--clean|
+or setting |$XDG_DATA_HOME| during startup. Plugin's subdirectory name matches
 plugin's name in specification. It is assumed that all plugins in the
 directory are managed exclusively by `vim.pack`.
 
@@ -269,9 +271,8 @@ Switch plugin's version:
   run |vim.pack.update()|.
 
 Freeze plugin from being updated:
-• Update 'init.lua' for plugin to have `version` set to current commit hash.
-  You can get it by running `vim.pack.update({ 'plugin-name' })` and yanking
-  the word describing current state (looks like `abc12345`).
+• Update 'init.lua' for plugin to have `version` set to current revision. Get
+  it with `:=vim.pack.get({ 'plug-name' })[1].rev` (looks like `abc12345`).
 • |:restart|.
 
 Unfreeze plugin to start receiving updates:
@@ -309,17 +310,19 @@ Each event populates the following |event-data| fields:
                     • String to use specific branch, tag, or commit hash.
                     • Output of |vim.version.range()| to install the
                       greatest/last semver tag inside the version constraint.
+      • {data}?     (`any`) Arbitrary data associated with a plugin.
 
 
 add({specs}, {opts})                                          *vim.pack.add()*
     Add plugin to current session
     • For each specification check that plugin exists on disk in
       |vim.pack-directory|:
-      • If exists, do nothin in this step.
+      • If exists, do nothing in this step.
       • If doesn't exist, install it by downloading from `src` into `name`
         subdirectory (via `git clone`) and update state to match `version`
         (via `git checkout`).
-    • For each plugin execute |:packadd| making them reachable by Nvim.
+    • For each plugin execute |:packadd| (or customizable `load` function)
+      making it reachable by Nvim.
 
     Notes:
     • Installation is done in parallel, but waits for all to finish before
@@ -334,9 +337,14 @@ add({specs}, {opts})                                          *vim.pack.add()*
       • {specs}  (`(string|vim.pack.Spec)[]`) List of plugin specifications.
                  String item is treated as `src`.
       • {opts}   (`table?`) A table with the following fields:
-                 • {load}? (`boolean`) Load `plugin/` files and `ftdetect/`
-                   scripts. If `false`, works like `:packadd!`. Default
-                   `true`.
+                 • {load}?
+                   (`boolean|fun(plug_data: {spec: vim.pack.Spec, path: string})`)
+                   Load `plugin/` files and `ftdetect/` scripts. If `false`,
+                   works like `:packadd!`. If function, called with plugin
+                   data and is fully responsible for loading plugin. Default
+                   `false` during startup and `true` afterwards.
+                 • {confirm}? (`boolean`) Whether to ask user to confirm
+                   initial install. Default `true`.
 
 del({names})                                                  *vim.pack.del()*
     Remove plugins from disk
@@ -346,16 +354,27 @@ del({names})                                                  *vim.pack.del()*
                  be managed by |vim.pack|, not necessarily already added to
                  current session.
 
-get()                                                         *vim.pack.get()*
-    Get data about all plugins managed by |vim.pack|
+get({names}, {opts})                                          *vim.pack.get()*
+    Gets |vim.pack| plugin info, optionally filtered by `names`.
+
+    Parameters: ~
+      • {names}  (`string[]?`) List of plugin names. Default: all plugins
+                 managed by |vim.pack|.
+      • {opts}   (`table?`) A table with the following fields:
+                 • {info} (`boolean`) Whether to include extra plugin info.
+                   Default `true`.
 
     Return: ~
         (`table[]`) A list of objects with the following fields:
-        • {spec} (`vim.pack.SpecResolved`) A |vim.pack.Spec| with defaults
-          made explicit.
-        • {path} (`string`) Plugin's path on disk.
         • {active} (`boolean`) Whether plugin was added via |vim.pack.add()|
           to current session.
+        • {branches}? (`string[]`) Available Git branches (first is default).
+          Missing if `info=false`.
+        • {path} (`string`) Plugin's path on disk.
+        • {rev}? (`string`) Current Git revision. Missing if `info=false`.
+        • {spec} (`vim.pack.SpecResolved`) A |vim.pack.Spec| with resolved
+          `name`.
+        • {tags}? (`string[]`) Available Git tags. Missing if `info=false`.
 
 update({names}, {opts})                                    *vim.pack.update()*
     Update plugins

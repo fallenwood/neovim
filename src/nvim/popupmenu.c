@@ -21,8 +21,7 @@
 #include "nvim/eval/typval.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds_defs.h"
-#include "nvim/extmark.h"
-#include "nvim/extmark_defs.h"
+#include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
 #include "nvim/getchar.h"
@@ -33,22 +32,19 @@
 #include "nvim/highlight_defs.h"
 #include "nvim/insexpand.h"
 #include "nvim/keycodes.h"
-#include "nvim/mark.h"
 #include "nvim/mbyte.h"
-#include "nvim/memline.h"
 #include "nvim/memory.h"
 #include "nvim/memory_defs.h"
 #include "nvim/menu.h"
 #include "nvim/message.h"
+#include "nvim/mouse.h"
 #include "nvim/move.h"
-#include "nvim/ops.h"
 #include "nvim/option.h"
 #include "nvim/option_defs.h"
 #include "nvim/option_vars.h"
 #include "nvim/plines.h"
 #include "nvim/popupmenu.h"
 #include "nvim/pos_defs.h"
-#include "nvim/search.h"
 #include "nvim/state_defs.h"
 #include "nvim/strings.h"
 #include "nvim/types_defs.h"
@@ -86,9 +82,7 @@ static bool pum_is_drawn = false;
 static bool pum_external = false;
 static bool pum_invalid = false;  // the screen was just cleared
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "popupmenu.c.generated.h"
-#endif
+#include "popupmenu.c.generated.h"
 #define PUM_DEF_HEIGHT 10
 
 static void pum_compute_size(void)
@@ -467,6 +461,10 @@ static int *pum_compute_text_attrs(char *text, hlf_T hlf, int user_hlattr)
 
   if (in_fuzzy) {
     ga = fuzzy_match_str_with_pos(text, leader);
+    if (!ga) {
+      xfree(attrs);
+      return NULL;
+    }
   }
 
   const char *ptr = text;
@@ -1328,6 +1326,10 @@ static void pum_position_at_mouse(int min_width)
   int col = mouse_col;
   pum_win_row_offset = 0;
   pum_win_col_offset = 0;
+
+  if (ui_has(kUIMultigrid) && grid == 0) {
+    mouse_find_win_outer(&grid, &row, &col);
+  }
   if (grid > 1) {
     win_T *wp = get_win_by_grid_handle(grid);
     if (wp != NULL) {
@@ -1398,17 +1400,27 @@ static void pum_position_at_mouse(int min_width)
 /// Select the pum entry at the mouse position.
 static void pum_select_mouse_pos(void)
 {
-  if (mouse_grid == pum_grid.handle) {
-    pum_selected = mouse_row;
+  int grid = mouse_grid;
+  int row = mouse_row;
+  int col = mouse_col;
+
+  if (grid == 0) {
+    mouse_find_win_outer(&grid, &row, &col);
+  }
+
+  if (grid == pum_grid.handle) {
+    pum_selected = row;
     return;
-  } else if (mouse_grid != pum_anchor_grid
-             || mouse_col < pum_left_col - pum_win_col_offset
-             || mouse_col >= pum_right_col - pum_win_col_offset) {
+  }
+
+  if (grid != pum_anchor_grid
+      || col < pum_left_col - pum_win_col_offset
+      || col >= pum_right_col - pum_win_col_offset) {
     pum_selected = -1;
     return;
   }
 
-  int idx = mouse_row - (pum_row - pum_win_row_offset);
+  int idx = row - (pum_row - pum_win_row_offset);
 
   if (idx < 0 || idx >= pum_height) {
     pum_selected = -1;

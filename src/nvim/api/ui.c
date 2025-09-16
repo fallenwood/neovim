@@ -42,10 +42,8 @@
 
 #define BUF_POS(ui) ((size_t)((ui)->packer.ptr - (ui)->packer.startptr))
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "api/ui.c.generated.h"
-# include "ui_events_remote.generated.h"  // IWYU pragma: export
-#endif
+#include "api/ui.c.generated.h"
+#include "ui_events_remote.generated.h"  // IWYU pragma: export
 
 // TODO(bfredl): just make UI:s owned by their channels instead
 static PMap(uint64_t) connected_uis = MAP_INIT;
@@ -321,6 +319,20 @@ bool remote_ui_restart(uint64_t channel_id, Error *err)
   return true;
 }
 
+// Send a connect UI event to the UI on the given channel
+void remote_ui_connect(uint64_t channel_id, char *server_addr, Error *err)
+{
+  RemoteUI *ui = get_ui_or_err(channel_id, err);
+  if (!ui) {
+    return;
+  }
+
+  MAXSIZE_TEMP_ARRAY(args, 1);
+  ADD_C(args, CSTR_AS_OBJ(server_addr));
+
+  push_call(ui, "connect", args);
+}
+
 // TODO(bfredl): use me to detach a specific ui from the server
 void remote_ui_stop(RemoteUI *ui)
 {
@@ -553,37 +565,6 @@ void nvim_ui_pum_set_bounds(uint64_t channel_id, Float width, Float height, Floa
   ui->pum_width = (double)width;
   ui->pum_height = (double)height;
   ui->pum_pos = true;
-}
-
-/// Tells Nvim when a terminal event has occurred
-///
-/// The following terminal events are supported:
-///
-///   - "termresponse": The terminal sent a DA1, OSC, DCS, or APC response sequence to
-///                     Nvim. The payload is the received response. Sets
-///                     |v:termresponse| and fires |TermResponse|.
-///
-/// @param channel_id
-/// @param event Event name
-/// @param value Event payload
-/// @param[out] err Error details, if any.
-void nvim_ui_term_event(uint64_t channel_id, String event, Object value, Error *err)
-  FUNC_API_SINCE(12) FUNC_API_REMOTE_ONLY
-{
-  if (strequal("termresponse", event.data)) {
-    if (value.type != kObjectTypeString) {
-      api_set_error(err, kErrorTypeValidation, "termresponse must be a string");
-      return;
-    }
-
-    const String termresponse = value.data.string;
-    set_vim_var_string(VV_TERMRESPONSE, termresponse.data, (ptrdiff_t)termresponse.size);
-
-    MAXSIZE_TEMP_DICT(data, 1);
-    PUT_C(data, "sequence", value);
-    apply_autocmds_group(EVENT_TERMRESPONSE, NULL, NULL, true, AUGROUP_ALL, NULL, NULL,
-                         &DICT_OBJ(data));
-  }
 }
 
 static void flush_event(RemoteUI *ui)
@@ -989,6 +970,17 @@ void remote_ui_flush(RemoteUI *ui)
   }
 }
 
+void remote_ui_ui_send(RemoteUI *ui, String content)
+{
+  if (!ui->stdout_tty) {
+    return;
+  }
+
+  MAXSIZE_TEMP_ARRAY(args, 1);
+  ADD_C(args, STRING_OBJ(content));
+  push_call(ui, "ui_send", args);
+}
+
 void remote_ui_flush_pending_data(RemoteUI *ui)
 {
   ui_flush_buf(ui, false);
@@ -1090,4 +1082,19 @@ void remote_ui_event(RemoteUI *ui, char *name, Array args)
 
 free_ret:
   arena_mem_free(arena_finish(&arena));
+}
+
+/// Sends arbitrary data to a UI. Use this instead of |nvim_chan_send()| or `io.stdout:write()`, if
+/// you really want to write to the |TUI| host terminal.
+///
+/// Emits a "ui_send" event to all UIs with the "stdout_tty" |ui-option| set. UIs are expected to
+/// write the received data to a connected TTY if one exists.
+///
+/// @param channel_id
+/// @param content Content to write to the TTY
+/// @param[out] err Error details, if any
+void nvim_ui_send(uint64_t channel_id, String content, Error *err)
+  FUNC_API_SINCE(14)
+{
+  ui_call_ui_send(content);
 }

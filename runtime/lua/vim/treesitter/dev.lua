@@ -160,12 +160,12 @@ end
 ---@param b integer
 ---@param opts nil|{ indent?: integer }
 local function set_dev_options(w, b, opts)
-  vim.wo[w].scrolloff = 5
-  vim.wo[w].wrap = false
-  vim.wo[w].foldmethod = 'expr'
-  vim.wo[w].foldexpr = 'v:lua.vim.treesitter.foldexpr()' -- explicitly set foldexpr
-  vim.wo[w].foldenable = false -- Don't fold on first open InspectTree
-  vim.wo[w].foldlevel = 99
+  vim.wo[w][0].scrolloff = 5
+  vim.wo[w][0].wrap = false
+  vim.wo[w][0].foldmethod = 'expr'
+  vim.wo[w][0].foldexpr = 'v:lua.vim.treesitter.foldexpr()' -- explicitly set foldexpr
+  vim.wo[w][0].foldenable = false -- Don't fold on first open InspectTree
+  vim.wo[w][0].foldlevel = 99
   vim.bo[b].buflisted = false
   vim.bo[b].buftype = 'nofile'
   vim.bo[b].bufhidden = 'wipe'
@@ -343,7 +343,7 @@ function M.inspect_tree(opts)
   local win = api.nvim_get_current_win()
   local treeview, err = TSTreeView:new(buf, opts.lang)
   if err and err:match('no parser for lang') then
-    vim.api.nvim_echo({ { err, 'WarningMsg' } }, true, {})
+    api.nvim_echo({ { err, 'WarningMsg' } }, true, {})
     return
   elseif not treeview then
     error(err)
@@ -627,7 +627,7 @@ function M.edit_query(lang)
   local base_buf = base_win and api.nvim_win_get_buf(base_win)
   local inspect_win = base_buf and vim.b[base_buf].dev_inspect
   if base_win and base_buf and api.nvim_win_is_valid(inspect_win) then
-    vim.api.nvim_set_current_win(inspect_win)
+    api.nvim_set_current_win(inspect_win)
     buf = base_buf
     win = base_win
     cmd = 'new'

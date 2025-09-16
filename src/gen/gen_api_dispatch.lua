@@ -171,7 +171,7 @@ local ui_options_text = nil
 for i = pre_args + 1, #arg do
   local full_path = arg[i]
   local parts = {} --- @type string[]
-  for part in full_path:gmatch('[^/]+') do
+  for part in full_path:gmatch('[^/\\]+') do
     parts[#parts + 1] = part
   end
   headers[#headers + 1] = parts[#parts - 1] .. '/' .. parts[#parts]
@@ -395,6 +395,7 @@ output:write([[
 #include "nvim/api/buffer.h"
 #include "nvim/api/command.h"
 #include "nvim/api/deprecated.h"
+#include "nvim/api/events.h"
 #include "nvim/api/extmark.h"
 #include "nvim/api/options.h"
 #include "nvim/api/tabpage.h"
@@ -421,7 +422,7 @@ for _, k in ipairs(keysets) do
   local function typename(type)
     if type == 'HLGroupID' then
       return 'kObjectTypeInteger'
-    elseif not type or vim.startswith(type, 'Union') then
+    elseif not type or startswith(type, 'Union') then
       return 'kObjectTypeNil'
     elseif type == 'StringArray' then
       return 'kUnpackTypeStringArray'

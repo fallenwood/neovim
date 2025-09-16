@@ -186,9 +186,7 @@ typedef struct {
 spelltab_T spelltab;
 bool did_set_spelltab;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "spell.c.generated.h"
-#endif
+#include "spell.c.generated.h"
 
 /// mode values for find_word
 enum {
@@ -3234,7 +3232,7 @@ void ex_spelldump(exarg_T *eap)
 
   // Delete the empty line that we started with.
   if (curbuf->b_ml.ml_line_count > 1) {
-    ml_delete(curbuf->b_ml.ml_line_count, false);
+    ml_delete(curbuf->b_ml.ml_line_count);
   }
   redraw_later(curwin, UPD_NOT_VALID);
 }

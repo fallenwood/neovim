@@ -272,7 +272,7 @@ describe('prompt buffer', function()
     eq('line 1\nline 2\nline 3', fn('prompt_getinput', buf))
 
     feed('<cr>')
-    -- submiting multiline text works
+    -- submitting multiline text works
     screen:expect([[
       Result: "line 1          |
       line 2                   |
@@ -396,7 +396,7 @@ describe('prompt buffer', function()
     source_script()
     local buf = api.nvim_get_current_buf()
 
-    -- text editiing alowed in current prompt
+    -- text editing allowed in current prompt
     feed('tests-initial<esc>')
     feed('bimiddle-<esc>')
     screen:expect([[
@@ -622,6 +622,12 @@ describe('prompt buffer', function()
     -- ': mark is only available in prompt buffer.
     source('set buftype=')
     eq("Invalid mark name: ':'", t.pcall_err(api.nvim_buf_get_mark, 0, ':'))
+
+    -- mark can be moved
+    source('set buftype=prompt')
+    eq({ 11, 1 }, api.nvim_buf_get_mark(0, ':'))
+    eq(true, api.nvim_buf_set_mark(0, ':', 1, 1, {}))
+    eq({ 1, 1 }, api.nvim_buf_get_mark(0, ':'))
   end)
 
   describe('prompt_getinput', function()

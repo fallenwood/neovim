@@ -35,6 +35,7 @@
 #include "nvim/extmark.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
+#include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
 #include "nvim/gettext_defs.h"
@@ -257,9 +258,7 @@ typedef struct {
   char *qf_title;      ///< quickfix list title
 } vgr_args_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "quickfix.c.generated.h"
-#endif
+#include "quickfix.c.generated.h"
 
 static const char *e_no_more_items = N_("E553: No more items");
 static const char *e_current_quickfix_list_was_changed =
@@ -4360,7 +4359,7 @@ static void qf_fill_buffer(qf_list_T *qfl, buf_T *buf, qfline_T *old_last, int q
     while ((curbuf->b_ml.ml_flags & ML_EMPTY) == 0) {
       // If deletion fails, this loop may run forever, so
       // signal error and return.
-      if (ml_delete(1, false) == FAIL) {
+      if (ml_delete(1) == FAIL) {
         internal_error("qf_fill_buffer()");
         return;
       }
@@ -4430,7 +4429,7 @@ static void qf_fill_buffer(qf_list_T *qfl, buf_T *buf, qfline_T *old_last, int q
     }
     if (old_last == NULL) {
       // Delete the empty line which is now at the end
-      ml_delete(lnum + 1, false);
+      ml_delete(lnum + 1);
     }
 
     qfga_clear();
@@ -5487,7 +5486,7 @@ static bool vgr_match_buflines(qf_list_T *qfl, char *fname, buf_T *buf, char *sp
 {
   bool found_match = false;
   size_t pat_len = strlen(spat);
-  pat_len = MIN(pat_len, MAX_FUZZY_MATCHES);
+  pat_len = MIN(pat_len, FUZZY_MATCH_MAX_LEN);
 
   for (linenr_T lnum = 1; lnum <= buf->b_ml.ml_line_count && *tomatch > 0; lnum++) {
     colnr_T col = 0;
@@ -5533,12 +5532,12 @@ static bool vgr_match_buflines(qf_list_T *qfl, char *fname, buf_T *buf, char *sp
       char *const str = ml_get_buf(buf, lnum);
       const colnr_T linelen = ml_get_buf_len(buf, lnum);
       int score;
-      uint32_t matches[MAX_FUZZY_MATCHES];
+      uint32_t matches[FUZZY_MATCH_MAX_LEN];
       const size_t sz = sizeof(matches) / sizeof(matches[0]);
 
       // Fuzzy string match
       CLEAR_FIELD(matches);
-      while (fuzzy_match(str + col, spat, false, &score, matches, (int)sz, true) > 0) {
+      while (fuzzy_match(str + col, spat, false, &score, matches, (int)sz) > 0) {
         // Pass the buffer number so that it gets used even for a
         // dummy buffer, unless duplicate_name is set, then the
         // buffer will be wiped out below.

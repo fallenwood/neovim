@@ -359,8 +359,13 @@ function vim.api.nvim_buf_get_commands(buffer, opts) end
 --- @param opts vim.api.keyset.get_extmark Optional parameters. Keys:
 --- - details: Whether to include the details dict
 --- - hl_name: Whether to include highlight group name instead of id, true if omitted
---- @return [integer, integer, vim.api.keyset.extmark_details?] # 0-indexed (row, col) tuple or empty list () if extmark id was
---- absent
+--- @return [integer, integer, vim.api.keyset.extmark_details?] # 0-indexed (row, col, details?) tuple or empty list () if extmark id was absent.  The
+--- optional `details` dictionary contains the same keys as `opts` in |nvim_buf_set_extmark()|,
+--- except for `id`, `conceal_lines` and `ephemeral`. It also contains the following keys:
+---
+--- - ns_id: |namespace| id
+--- - invalid: boolean that indicates whether the mark is hidden because the entirety of
+--- text span range is deleted. See also the key `invalidate` in |nvim_buf_set_extmark()|.
 function vim.api.nvim_buf_get_extmark_by_id(buffer, ns_id, id, opts) end
 
 --- Gets `extmarks` in "traversal order" from a `charwise` region defined by
@@ -419,7 +424,8 @@ function vim.api.nvim_buf_get_extmark_by_id(buffer, ns_id, id, opts) end
 --- - overlap: Also include marks which overlap the range, even if
 ---            their start position is less than `start`
 --- - type: Filter marks by type: "highlight", "sign", "virt_text" and "virt_lines"
---- @return vim.api.keyset.get_extmark_item[] # List of `[extmark_id, row, col]` tuples in "traversal order".
+--- @return vim.api.keyset.get_extmark_item[] # List of `[extmark_id, row, col, details?]` tuples in "traversal order". For the
+--- `details` dictionary, see |nvim_buf_get_extmark_by_id()|.
 function vim.api.nvim_buf_get_extmarks(buffer, ns_id, start, end_, opts) end
 
 --- Gets a list of buffer-local `mapping` definitions.
@@ -813,18 +819,18 @@ function vim.api.nvim_call_dict_function(dict, fn, args) end
 --- @return any # Result of the function call
 function vim.api.nvim_call_function(fn, args) end
 
---- Send data to channel `id`. For a job, it writes it to the
---- stdin of the process. For the stdio channel `channel-stdio`,
---- it writes to Nvim's stdout.  For an internal terminal instance
---- (`nvim_open_term()`) it writes directly to terminal output.
---- See `channel-bytes` for more information.
+--- Sends raw data to channel `chan`. `channel-bytes`
+--- - For a job, it writes it to the stdin of the process.
+--- - For the stdio channel `channel-stdio`, it writes to Nvim's stdout.
+--- - For an internal terminal instance (`nvim_open_term()`) it writes directly to terminal output.
 ---
---- This function writes raw data, not RPC messages.  If the channel
---- was created with `rpc=true` then the channel expects RPC
---- messages, use `vim.rpcnotify()` and `vim.rpcrequest()` instead.
+--- This function writes raw data, not RPC messages. Use `vim.rpcrequest()` and `vim.rpcnotify()` if
+--- the channel expects RPC messages (i.e. it was created with `rpc=true`).
 ---
---- @param chan integer id of the channel
---- @param data string data to write. 8-bit clean: can contain NUL bytes.
+--- To write data to the `TUI` host terminal, see `nvim_ui_send()`.
+---
+--- @param chan integer Channel id
+--- @param data string Data to write. 8-bit clean: may contain NUL bytes.
 function vim.api.nvim_chan_send(chan, data) end
 
 --- Clears all autocommands selected by {opts}. To delete autocmds see `nvim_del_autocmd()`.
@@ -1100,10 +1106,25 @@ function vim.api.nvim_del_var(name) end
 --- the (optional) name or ID `hl_group`.
 --- @param history boolean if true, add to `message-history`.
 --- @param opts vim.api.keyset.echo_opts Optional parameters.
+--- - id: message id for updating existing message.
 --- - err: Treat the message like `:echoerr`. Sets `hl_group` to `hl-ErrorMsg` by default.
 --- - kind: Set the `ui-messages` kind with which this message will be emitted.
 --- - verbose: Message is controlled by the 'verbose' option. Nvim invoked with `-V3log`
 ---   will write the message to the "log" file instead of standard output.
+--- - title: The title for `progress-message`.
+--- - status: Current status of the `progress-message`. Can be
+---   one of the following values
+---   - success: The progress item completed successfully
+---   - running: The progress is ongoing
+---   - failed: The progress item failed
+---   - cancel: The progressing process should be canceled.
+---             note: Cancel needs to be handled by progress
+---             initiator by listening for the `Progress` event
+--- - percent: How much progress is done on the progress
+---   message
+--- - data: dictionary containing additional information
+--- @return integer|string # Message id.
+--- - -1 means nvim_echo didn't show a message
 function vim.api.nvim_echo(chunks, history, opts) end
 
 --- @deprecated
@@ -1585,7 +1606,8 @@ function vim.api.nvim_input(keys) end
 --- The same specifiers are used as for a key press, except
 --- that the "-" separator is optional, so "C-A-", "c-a"
 --- and "CA" can all be used to specify Ctrl+Alt+click.
---- @param grid integer Grid number if the client uses `ui-multigrid`, else 0.
+--- @param grid integer Grid number (used by `ui-multigrid` client), or 0 to let Nvim decide positioning of
+--- windows. For more information, see [dev-ui-multigrid]
 --- @param row integer Mouse row-position (zero-based, like redraw events)
 --- @param col integer Mouse column-position (zero-based, like redraw events)
 function vim.api.nvim_input_mouse(button, action, modifier, grid, row, col) end
@@ -1705,7 +1727,7 @@ function vim.api.nvim_open_term(buffer, opts) end
 --- provided or `win == 0`, a window will be created adjacent to the current window.
 --- If -1 is provided, a top-level split will be created. `vertical` and `split` are
 --- only valid for normal windows, and are used to control split direction. For `vertical`,
---- the exact direction is determined by `'splitright'` and `'splitbelow'`.
+--- the exact direction is determined by 'splitright' and 'splitbelow'.
 --- Split windows cannot have `bufpos`/`row`/`col`/`border`/`title`/`footer`
 --- properties.
 ---
@@ -2113,7 +2135,7 @@ function vim.api.nvim_set_current_win(window) end
 --- Note: this function should not be called often. Rather, the callbacks
 --- themselves can be used to throttle unneeded callbacks. the `on_start`
 --- callback can return `false` to disable the provider until the next redraw.
---- Similarly, return `false` in `on_win` will skip the `on_line` calls
+--- Similarly, return `false` in `on_win` will skip the `on_line` and `on_range` calls
 --- for that window (but any extmarks set in `on_win` will still be used).
 --- A plugin managing multiple sources of decoration should ideally only set
 --- one provider, and merge the sources internally. You can use multiple `ns_id`
@@ -2125,7 +2147,7 @@ function vim.api.nvim_set_current_win(window) end
 --- Doing `vim.rpcnotify` should be OK, but `vim.rpcrequest` is quite dubious
 --- for the moment.
 ---
---- Note: It is not allowed to remove or update extmarks in `on_line` callbacks.
+--- Note: It is not allowed to remove or update extmarks in `on_line` or `on_range` callbacks.
 ---
 --- @param ns_id integer Namespace id from `nvim_create_namespace()`
 --- @param opts vim.api.keyset.set_decoration_provider Table of callbacks:
@@ -2142,11 +2164,25 @@ function vim.api.nvim_set_current_win(window) end
 ---   ```
 ---     ["win", winid, bufnr, toprow, botrow]
 ---   ```
---- - on_line: called for each buffer line being redrawn.
----     (The interaction with fold lines is subject to change)
+--- - on_line: (deprecated, use on_range instead)
 ---   ```
 ---     ["line", winid, bufnr, row]
 ---   ```
+--- - on_range: called for each buffer range being redrawn.
+---   Range is end-exclusive and may span multiple lines. Range
+---   bounds point to the first byte of a character. An end position
+---   of the form (lnum, 0), including (number of lines, 0), is valid
+---   and indicates that EOL of the preceding line is included.
+---   ```
+---     ["range", winid, bufnr, begin_row, begin_col, end_row, end_col]
+---   ```
+---
+---   In addition to returning a boolean, it is also allowed to
+---   return a `skip_row, skip_col` pair of integers. This implies
+---   that this function does not need to be called until a range
+---   which continues beyond the skipped position. A single integer
+---   return value `skip_row` is short for `skip_row, 0`
+---
 --- - on_end: called at the end of a redraw cycle
 ---   ```
 ---     ["end", tick]
@@ -2340,6 +2376,15 @@ function vim.api.nvim_tabpage_set_var(tabpage, name, value) end
 --- @param win integer `window-ID`, must already belong to {tabpage}
 function vim.api.nvim_tabpage_set_win(tabpage, win) end
 
+--- Sends arbitrary data to a UI. Use this instead of `nvim_chan_send()` or `io.stdout:write()`, if
+--- you really want to write to the `TUI` host terminal.
+---
+--- Emits a "ui_send" event to all UIs with the "stdout_tty" `ui-option` set. UIs are expected to
+--- write the received data to a connected TTY if one exists.
+---
+--- @param content string Content to write to the TTY
+function vim.api.nvim_ui_send(content) end
+
 --- Calls a function with window as temporary current window.
 ---
 ---
@@ -2378,7 +2423,7 @@ function vim.api.nvim_win_get_buf(window) end
 --- `relative` is empty for normal windows.
 ---
 --- @param window integer `window-ID`, or 0 for current window
---- @return vim.api.keyset.win_config # Map defining the window configuration, see |nvim_open_win()|
+--- @return vim.api.keyset.win_config_ret # Map defining the window configuration, see |nvim_open_win()|
 function vim.api.nvim_win_get_config(window) end
 
 --- Gets the (1,0)-indexed, buffer-relative cursor position for a given window

@@ -42,6 +42,8 @@ for k, v in pairs({
   pack = true,
   _watch = true,
   net = true,
+  pos = true,
+  range = true,
 }) do
   vim._submodules[k] = v
 end
@@ -248,7 +250,7 @@ do
       return false
     end
     undo_started = true
-    if phase ~= -1 and (now - tdots >= 100) then
+    if not is_last_chunk and (now - tdots >= 100) then
       local dots = ('.'):rep(tick % 4)
       tdots = now
       tick = tick + 1

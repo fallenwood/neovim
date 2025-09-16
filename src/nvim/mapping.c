@@ -27,6 +27,7 @@
 #include "nvim/eval/userfunc.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_session.h"
+#include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
 #include "nvim/getchar.h"
@@ -50,7 +51,6 @@
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
 #include "nvim/runtime.h"
-#include "nvim/search.h"
 #include "nvim/state_defs.h"
 #include "nvim/strings.h"
 #include "nvim/types_defs.h"
@@ -117,9 +117,7 @@ typedef struct map_arguments MapArguments;
 #define MAP_ARGUMENTS_INIT { false, false, false, false, false, false, false, false, \
                              { 0 }, 0, { 0 }, 0, NULL, 0, LUA_NOREF, false, NULL, 0, NULL }
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "mapping.c.generated.h"
-#endif
+#include "mapping.c.generated.h"
 
 static const char e_global_abbreviation_already_exists_for_str[]
   = N_("E224: Global abbreviation already exists for %s");
@@ -1340,7 +1338,7 @@ int ExpandMappings(char *pat, regmatch_T *regmatch, int *numMatches, char ***mat
       match = vim_regexec(regmatch, p, 0);
     } else {
       score = fuzzy_match_str(p, pat);
-      match = (score != 0);
+      match = (score != FUZZY_SCORE_NONE);
     }
 
     if (!match) {
@@ -1386,7 +1384,7 @@ int ExpandMappings(char *pat, regmatch_T *regmatch, int *numMatches, char ***mat
         match = vim_regexec(regmatch, p, 0);
       } else {
         score = fuzzy_match_str(p, pat);
-        match = (score != 0);
+        match = (score != FUZZY_SCORE_NONE);
       }
 
       if (!match) {

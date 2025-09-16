@@ -17,6 +17,7 @@ local M = {
     },
   },
 }
+--- @type vim.api.keyset.win_config
 local wincfg = { -- Default cfg for nvim_open_win().
   relative = 'laststatus',
   style = 'minimal',
@@ -49,7 +50,7 @@ function M.check_targets()
         hide = type ~= 'cmd' or M.cmdheight == 0 or nil,
         border = type ~= 'msg' and 'none' or nil,
         -- kZIndexMessages < zindex < kZIndexCmdlinePopupMenu (grid_defs.h), pager below others.
-        zindex = 200 - (type == 'pager' and 1 or 0),
+        zindex = 200 + (type == 'cmd' and 1 or type == 'pager' and -1 or 0),
         _cmdline_offset = type == 'cmd' and 0 or nil,
       })
       if tab ~= curtab and api.nvim_win_is_valid(M.wins[type]) then

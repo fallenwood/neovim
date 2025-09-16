@@ -112,9 +112,7 @@ typedef struct {
 
 static int VIsual_mode_orig = NUL;              // saved Visual mode
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "normal.c.generated.h"
-#endif
+#include "normal.c.generated.h"
 
 static const char e_changelist_is_empty[] = N_("E664: Changelist is empty");
 static const char e_cmdline_window_already_open[]
@@ -4237,7 +4235,7 @@ static void nv_brackets(cmdarg_T *cap)
                             ? curwin->w_cursor.lnum + 1
                             : 1),
                            MAXLNUM,
-                           false);
+                           false, false);
       xfree(ptr);
       curwin->w_set_curswant = true;
     }
@@ -6591,7 +6589,7 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
   // When all lines were selected and deleted do_put() leaves an empty
   // line that needs to be deleted now.
   if (empty && *ml_get(curbuf->b_ml.ml_line_count) == NUL) {
-    ml_delete(curbuf->b_ml.ml_line_count, true);
+    ml_delete_flags(curbuf->b_ml.ml_line_count, ML_DEL_MESSAGE);
     deleted_lines(curbuf->b_ml.ml_line_count + 1, 1);
 
     // If the cursor was in that line, move it to the end of the last

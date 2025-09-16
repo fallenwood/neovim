@@ -141,23 +141,21 @@ typedef enum {
   kSomeMatchStrPos,  ///< Data for matchstrpos().
 } SomeMatchType;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "eval/funcs.c.generated.h"
+#include "eval/funcs.c.generated.h"
 
-# ifdef _MSC_VER
+#ifdef _MSC_VER
 // This prevents MSVC from replacing the functions with intrinsics,
 // and causing errors when trying to get their addresses in funcs.generated.h
-#  pragma function(ceil)
-#  pragma function(floor)
-# endif
+# pragma function(ceil)
+# pragma function(floor)
+#endif
 
 PRAGMA_DIAG_PUSH_IGNORE_MISSING_PROTOTYPES
 PRAGMA_DIAG_PUSH_IGNORE_IMPLICIT_FALLTHROUGH
-# include "funcs.generated.h"
+#include "funcs.generated.h"
 
 PRAGMA_DIAG_POP
 PRAGMA_DIAG_POP
-#endif
 
 static const char *e_listblobarg = N_("E899: Argument of %s must be a List or Blob");
 static const char *e_invalwindow = N_("E957: Invalid window number");
@@ -3346,6 +3344,9 @@ static varnumber_T indexof_blob(blob_T *b, varnumber_T startidx, typval_T *expr)
     }
   }
 
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
+  set_vim_var_type(VV_VAL, VAR_NUMBER);
+
   const int called_emsg_start = called_emsg;
   for (varnumber_T idx = startidx; idx < tv_blob_len(b); idx++) {
     set_vim_var_nr(VV_KEY, idx);
@@ -3386,6 +3387,8 @@ static varnumber_T indexof_list(list_T *l, varnumber_T startidx, typval_T *expr)
       assert(item != NULL);
     }
   }
+
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
 
   const int called_emsg_start = called_emsg;
   for (; item != NULL; item = TV_LIST_ITEM_NEXT(l, item), idx++) {

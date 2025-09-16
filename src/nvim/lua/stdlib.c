@@ -47,9 +47,7 @@
 #include "nvim/types_defs.h"
 #include "nvim/window.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "lua/stdlib.c.generated.h"
-#endif
+#include "lua/stdlib.c.generated.h"
 
 static int regex_match(lua_State *lstate, regprog_T **prog, char *str)
 {
@@ -565,7 +563,7 @@ static int nlua_foldupdate(lua_State *lstate)
   }
   // input is zero-based end-exclusive range
   linenr_T top = (linenr_T)luaL_checkinteger(lstate, 2) + 1;
-  if (top < 1 || top > win->w_buffer->b_ml.ml_line_count) {
+  if (top < 1) {
     return luaL_error(lstate, "invalid top");
   }
   linenr_T bot = (linenr_T)luaL_checkinteger(lstate, 3);

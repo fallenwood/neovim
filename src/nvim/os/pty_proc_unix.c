@@ -13,7 +13,7 @@
 // forkpty is not in POSIX, so headers are platform-specific
 #if defined(__FreeBSD__) || defined(__DragonFly__)
 # include <libutil.h>
-// TODO(bfredl): this is avaliable on darwin, but there is an issue with cross-compile headers
+// TODO(bfredl): this is available on darwin, but there is an issue with cross-compile headers
 #elif defined(__APPLE__) && !defined(HAVE_FORKPTY)
 int forkpty(int *, char *, const struct termios *, const struct winsize *);
 #elif defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
@@ -45,9 +45,7 @@ int forkpty(int *, char *, const struct termios *, const struct winsize *);
 #include "nvim/os/pty_proc_unix.h"
 #include "nvim/types_defs.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "os/pty_proc_unix.c.generated.h"
-#endif
+#include "os/pty_proc_unix.c.generated.h"
 
 #if defined(__sun) && !defined(HAVE_FORKPTY)
 

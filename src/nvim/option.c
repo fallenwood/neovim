@@ -56,6 +56,7 @@
 #include "nvim/ex_getln.h"
 #include "nvim/ex_session.h"
 #include "nvim/fold.h"
+#include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
 #include "nvim/gettext_defs.h"
@@ -97,7 +98,6 @@
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
 #include "nvim/runtime.h"
-#include "nvim/search.h"
 #include "nvim/spell.h"
 #include "nvim/spellfile.h"
 #include "nvim/spellsuggest.h"
@@ -157,18 +157,14 @@ typedef enum {
   PREFIX_INV,     ///< "inv" prefix
 } set_prefix_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "option.c.generated.h"
-#endif
+#include "option.c.generated.h"
 
 // options[] is initialized in options.generated.h.
 // The options with a NULL variable are 'hidden': a set command for them is
 // ignored and they are not printed.
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "options.generated.h"
-# include "options_map.generated.h"
-#endif
+#include "options.generated.h"
+#include "options_map.generated.h"
 
 static int p_bin_dep_opts[] = {
   kOptTextwidth, kOptWrapmargin, kOptModeline, kOptExpandtab, kOptInvalid
@@ -2098,6 +2094,7 @@ static const char *did_set_laststatus(optset_T *args)
     win_comp_pos();
   }
 
+  status_redraw_curbuf();
   last_status(false);  // (re)set last window status line.
   return NULL;
 }
@@ -5578,7 +5575,7 @@ static bool match_str(char *const str, regmatch_T *const regmatch, char **const 
     }
   } else {
     const int score = fuzzy_match_str(str, fuzzystr);
-    if (score != 0) {
+    if (score != FUZZY_SCORE_NONE) {
       if (!test_only) {
         fuzmatch[idx].idx = idx;
         fuzmatch[idx].str = xstrdup(str);

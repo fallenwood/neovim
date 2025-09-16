@@ -168,14 +168,10 @@ struct dbg_stuff {
   except_T *current_exception;
 };
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "ex_docmd.c.generated.h"
-#endif
+#include "ex_docmd.c.generated.h"
 
 // Declare cmdnames[].
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "ex_cmds_defs.generated.h"
-#endif
+#include "ex_cmds_defs.generated.h"
 
 static char dollar_command[2] = { '$', 0 };
 
@@ -407,8 +403,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
   bool msg_didout_before_start = false;
   int count = 0;                        // line number count
   bool did_inc = false;                 // incremented RedrawingDisabled
-  int block_indent = -1;                // indent for ext_cmdline block event
-  char *block_line = NULL;              // block_line for ext_cmdline block event
+  bool did_block = false;               // emitted cmdline_block event
   int retval = OK;
   cstack_T cstack = {                   // conditional stack
     .cs_idx = -1,
@@ -577,18 +572,18 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
     // 2. If no line given, get an allocated line with fgetline().
     if (next_cmdline == NULL) {
       int indent = cstack.cs_idx < 0 ? 0 : (cstack.cs_idx + 1) * 2;
-      if (count >= 1 && getline_equal(fgetline, cookie, getexline)) {
+
+      if (count == 1 && getline_equal(fgetline, cookie, getexline)) {
         if (ui_has(kUICmdline)) {
-          char *line = block_line == last_cmdline ? "" : last_cmdline;
-          ui_ext_cmdline_block_append((size_t)MAX(0, block_indent), line);
-          block_line = last_cmdline;
-          block_indent = indent;
-        } else if (count == 1) {
-          // Need to set msg_didout for the first line after an ":if",
-          // otherwise the ":if" will be overwritten.
-          msg_didout = true;
+          // Emit cmdline_block event for loop/conditional block.
+          ui_ext_cmdline_block_append(0, last_cmdline);
+          did_block = true;
         }
+        // Need to set msg_didout for the first line after an ":if",
+        // otherwise the ":if" will be overwritten.
+        msg_didout = true;
       }
+
       if (fgetline == NULL || (next_cmdline = fgetline(':', cookie, indent, true)) == NULL) {
         // Don't call wait_return() for aborted command line.  The NULL
         // returned for the end of a sourced file or executed function
@@ -600,6 +595,12 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
         break;
       }
       used_getline = true;
+
+      // Emit all but the first cmdline_block event immediately; waiting until after
+      // command execution would mess up event ordering with nested command lines.
+      if (ui_has(kUICmdline) && count > 0 && getline_equal(fgetline, cookie, getexline)) {
+        ui_ext_cmdline_block_append((size_t)indent, next_cmdline);
+      }
 
       // Keep the first typed line.  Clear it when more lines are typed.
       if (flags & DOCMD_KEEPLINE) {
@@ -945,7 +946,7 @@ int do_cmdline(char *cmdline, LineGetter fgetline, void *cookie, int flags)
     }
   }
 
-  if (block_indent >= 0) {
+  if (did_block) {
     ui_ext_cmdline_block_leave();
   }
 
@@ -1489,7 +1490,7 @@ bool is_cmd_ni(cmdidx_T cmdidx)
 /// @param[out] errormsg Error message, if any
 ///
 /// @return Success or failure
-bool parse_cmdline(char *cmdline, exarg_T *eap, CmdParseInfo *cmdinfo, const char **errormsg)
+bool parse_cmdline(char **cmdline, exarg_T *eap, CmdParseInfo *cmdinfo, const char **errormsg)
 {
   char *after_modifier = NULL;
   bool retval = false;
@@ -1507,8 +1508,8 @@ bool parse_cmdline(char *cmdline, exarg_T *eap, CmdParseInfo *cmdinfo, const cha
   *eap = (exarg_T){
     .line1 = 1,
     .line2 = 1,
-    .cmd = cmdline,
-    .cmdlinep = &cmdline,
+    .cmd = *cmdline,
+    .cmdlinep = cmdline,
     .ea_getline = NULL,
     .cookie = NULL,
   };
@@ -1549,7 +1550,7 @@ bool parse_cmdline(char *cmdline, exarg_T *eap, CmdParseInfo *cmdinfo, const cha
   if (eap->cmdidx == CMD_SIZE) {
     xstrlcpy(IObuff, _(e_not_an_editor_command), IOSIZE);
     // If the modifier was parsed OK the error must be in the following command
-    char *cmdname = after_modifier ? after_modifier : cmdline;
+    char *cmdname = after_modifier ? after_modifier : *cmdline;
     append_command(cmdname);
     *errormsg = IObuff;
     goto end;
@@ -5653,6 +5654,32 @@ static void ex_detach(exarg_T *eap)
   }
 }
 
+/// ":connect"
+///
+/// Connects the current UI to a different server
+///
+/// ":connect <address>" detaches the current UI and connects to the given server.
+/// ":connect! <address>" stops the current server if no other UIs are attached, then connects to the given server.
+static void ex_connect(exarg_T *eap)
+{
+  bool stop_server = eap->forceit ? (ui_active() == 1) : false;
+
+  Error err = ERROR_INIT;
+  remote_ui_connect(current_ui, eap->arg, &err);
+
+  if (ERROR_SET(&err)) {
+    emsg(err.msg);
+    api_clear_error(&err);
+    return;
+  }
+
+  ex_detach(NULL);
+  if (stop_server) {
+    exiting = true;
+    getout(0);
+  }
+}
+
 /// ":mode":
 /// If no argument given, get the screen size and redraw.
 static void ex_mode(exarg_T *eap)
@@ -5996,7 +6023,7 @@ static void ex_read(exarg_T *eap)
         lnum = 1;
       }
       if (*ml_get(lnum) == NUL && u_savedel(lnum, 1) == OK) {
-        ml_delete(lnum, false);
+        ml_delete(lnum);
         if (curwin->w_cursor.lnum > 1
             && curwin->w_cursor.lnum >= lnum) {
           curwin->w_cursor.lnum--;
@@ -7045,21 +7072,26 @@ void exec_normal_cmd(char *cmd, int remap, bool silent)
 {
   // Stuff the argument into the typeahead buffer.
   ins_typebuf(cmd, remap, 0, true, silent);
-  exec_normal(false);
+  exec_normal(false, false);
 }
 
 /// Execute normal_cmd() until there is no typeahead left.
 ///
 /// @param was_typed whether or not something was typed
-void exec_normal(bool was_typed)
+/// @param use_vpeekc  true to use vpeekc() to check for available chars
+void exec_normal(bool was_typed, bool use_vpeekc)
 {
   oparg_T oa;
+  int c;
 
+  // When calling vpeekc() from feedkeys() it will return Ctrl_C when there
+  // is nothing to get, so also check for Ctrl_C.
   clear_oparg(&oa);
   finish_op = false;
   while ((!stuff_empty()
           || ((was_typed || !typebuf_typed())
-              && typebuf.tb_len > 0))
+              && typebuf.tb_len > 0)
+          || (use_vpeekc && (c = vpeekc()) != NUL && c != Ctrl_C))
          && !got_int) {
     update_topline_cursor();
     normal_cmd(&oa, true);      // execute a Normal mode cmd
@@ -7070,7 +7102,7 @@ static void ex_checkpath(exarg_T *eap)
 {
   find_pattern_in_path(NULL, 0, 0, false, false, CHECK_PATH, 1,
                        eap->forceit ? ACTION_SHOW_ALL : ACTION_SHOW,
-                       1, (linenr_T)MAXLNUM, eap->forceit);
+                       1, (linenr_T)MAXLNUM, eap->forceit, false);
 }
 
 /// ":psearch"
@@ -7128,8 +7160,8 @@ static void ex_findpat(exarg_T *eap)
   }
   if (!eap->skip) {
     find_pattern_in_path(eap->arg, 0, strlen(eap->arg), whole, !eap->forceit,
-                         *eap->cmd == 'd' ? FIND_DEFINE : FIND_ANY,
-                         n, action, eap->line1, eap->line2, eap->forceit);
+                         *eap->cmd == 'd' ? FIND_DEFINE : FIND_ANY, n, action,
+                         eap->line1, eap->line2, eap->forceit, false);
   }
 }
 
@@ -7328,7 +7360,7 @@ ssize_t find_cmdline_var(const char *src, size_t *usedlen)
 char *eval_vars(char *src, const char *srcstart, size_t *usedlen, linenr_T *lnump,
                 const char **errormsg, int *escaped, bool empty_is_error)
 {
-  char *result;
+  char *result = "";
   char *resultbuf = NULL;
   size_t resultlen;
   int valid = VALID_HEAD | VALID_PATH;  // Assume valid result.
@@ -7544,7 +7576,6 @@ char *eval_vars(char *src, const char *srcstart, size_t *usedlen, linenr_T *lnum
     default:
       // should not happen
       *errormsg = "";
-      result = "";    // avoid gcc warning
       break;
     }
 

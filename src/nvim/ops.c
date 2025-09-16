@@ -87,9 +87,7 @@ static bool clipboard_delay_update = false;  // delay clipboard update
 static bool clipboard_needs_update = false;  // clipboard was updated
 static bool clipboard_didwarn = false;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "ops.c.generated.h"
-#endif
+#include "ops.c.generated.h"
 
 static const char e_search_pattern_and_expression_register_may_not_contain_two_or_more_lines[]
   = N_("E883: Search pattern and expression register may not contain two or more lines");
@@ -101,7 +99,7 @@ static const char e_search_pattern_and_expression_register_may_not_contain_two_o
 /// The names of operators.
 /// IMPORTANT: Index must correspond with defines in ops.h!!!
 /// The third field indicates whether the operator always works on lines.
-static char opchars[][3] = {
+static const char opchars[][3] = {
   { NUL, NUL, 0 },                       // OP_NOP
   { 'd', NUL, OPF_CHANGE },              // OP_DELETE
   { 'y', NUL, 0 },                       // OP_YANK
@@ -4016,9 +4014,9 @@ int do_join(size_t count, bool insert_space, bool save_undo, bool use_formatopti
   colnr_T col = sumsize - currsize - spaces[count - 1];
 
   // allocate the space for the new line
-  char *newp = xmalloc((size_t)sumsize + 1);
+  size_t newp_len = (size_t)sumsize;
+  char *newp = xmallocz(newp_len);
   cend = newp + sumsize;
-  *cend = 0;
 
   // Move affected lines to the new long one.
   // This loops backwards over the joined lines, including the original line.
@@ -4032,6 +4030,7 @@ int do_join(size_t count, bool insert_space, bool save_undo, bool use_formatopti
   for (linenr_T t = (linenr_T)count - 1;; t--) {
     cend -= currsize;
     memmove(cend, curr, (size_t)currsize);
+
     if (spaces[t] > 0) {
       cend -= spaces[t];
       memset(cend, ' ', (size_t)(spaces[t]));
@@ -4062,7 +4061,7 @@ int do_join(size_t count, bool insert_space, bool save_undo, bool use_formatopti
     currsize = (int)strlen(curr);
   }
 
-  ml_replace(curwin->w_cursor.lnum, newp, false);
+  ml_replace_len(curwin->w_cursor.lnum, newp, newp_len, false);
 
   if (setmark && (cmdmod.cmod_flags & CMOD_LOCKMARKS) == 0) {
     // Set the '] mark.

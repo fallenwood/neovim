@@ -276,6 +276,10 @@ the editor.
 	to an internal buffer, this is the time to display the redrawn parts
 	to the user.
 
+["ui_send", content] ~
+	Write {content} to the connected TTY. Only UIs that have the
+	"stdout_tty" |ui-option| set will receive this event.
+
 ==============================================================================
 Grid Events (line-based)					  *ui-linegrid*
 
@@ -821,8 +825,9 @@ will be set to zero, but can be changed and used for the replacing cmdline or
 message window. Cmdline state is emitted as |ui-cmdline| events, which the UI
 must handle.
 
-["msg_show", kind, content, replace_last, history, append] ~
-	Display a message to the user.
+["msg_show", kind, content, replace_last, history, append, msg_id] ~
+	Display a message to the user. Update (replace) any existing message
+	matching `msg_id`.
 
 	kind
 	    Name indicating the message kind:
@@ -841,6 +846,7 @@ must handle.
 		"list_cmd"	List output for various commands (|:ls|, |:set|, …)
 		"lua_error"	Error in |:lua| code
 		"lua_print"	|print()| from |:lua| code
+		"progress"	Progress message emitted by |nvim_echo()|
 		"rpc_error"	Error response from |rpcrequest()|
 		"quickfix"	Quickfix navigation message
 		"search_cmd"	Entered search command
@@ -874,8 +880,12 @@ must handle.
 	    True if the message was added to the |:messages| history.
 
 	append
-	    True if the message should be appeneded to the previous message,
+	    True if the message should be appended to the previous message,
 	    rather than started on a new line. Is set for |:echon|.
+
+	msg_id
+	    Unique identifier for the message. It can either be an integer or
+	    string. When message of same id appears it should replace the older message.
 
 ["msg_clear"] ~
 	Clear all messages currently displayed by "msg_show", emitted after

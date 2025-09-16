@@ -56,9 +56,7 @@
 #include "nvim/undo.h"
 #include "nvim/vim_defs.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "change.c.generated.h"
-#endif
+#include "change.c.generated.h"
 
 /// If the file is readonly, give a warning message with the first change.
 /// Don't do this for autocommands.
@@ -1892,7 +1890,7 @@ void del_lines(linenr_T nlines, bool undo)
       break;
     }
 
-    ml_delete(first, true);
+    ml_delete_flags(first, ML_DEL_MESSAGE);
     n++;
 
     // If we delete the last line in the file, stop

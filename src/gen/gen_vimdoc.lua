@@ -1,5 +1,8 @@
 #!/usr/bin/env -S nvim -l
---- Generates Nvim :help docs from Lua/C docstrings
+--- Generates Nvim :help docs from Lua/C docstrings.
+---
+--- Usage:
+---     make doc
 ---
 --- The generated :help text for each function is formatted as follows:
 --- - Max width of 78 columns (`TEXT_WIDTH`).
@@ -106,6 +109,7 @@ local config = {
     filename = 'api.txt',
     section_order = {
       -- Sections at the top, in a specific order:
+      'events.c',
       'vim.c',
       'vimscript.c',
 
@@ -126,10 +130,21 @@ local config = {
       ['vim.c'] = 'Global',
     },
     section_fmt = function(name)
+      if name == 'Events' then
+        return 'Global Events'
+      end
+
       return name .. ' Functions'
     end,
     helptag_fmt = function(name)
       return fmt('api-%s', name:lower())
+    end,
+    fn_helptag_fmt = function(fun)
+      local name = fun.name
+      if vim.endswith(name, '_event') then
+        return name
+      end
+      return fn_helptag_fmt_common(fun)
     end,
   },
   lua = {
@@ -155,6 +170,8 @@ local config = {
       'lpeg.lua',
       'mpack.lua',
       'net.lua',
+      'pos.lua',
+      'range.lua',
       're.lua',
       'regex.lua',
       'secure.lua',
@@ -167,11 +184,9 @@ local config = {
       'version.lua',
 
       -- Sections at the end, in a specific order:
-      'tohtml.lua',
       '_extui.lua',
     },
     files = {
-      'runtime/lua/tohtml.lua',
       'runtime/lua/vim/_editor.lua',
       'runtime/lua/vim/_extui.lua',
       'runtime/lua/vim/_inspector.lua',
@@ -193,6 +208,8 @@ local config = {
       'runtime/lua/vim/keymap.lua',
       'runtime/lua/vim/loader.lua',
       'runtime/lua/vim/net.lua',
+      'runtime/lua/vim/pos.lua',
+      'runtime/lua/vim/range.lua',
       'runtime/lua/vim/secure.lua',
       'runtime/lua/vim/shared.lua',
       'runtime/lua/vim/snippet.lua',
@@ -230,9 +247,6 @@ local config = {
       elseif name == 'builtin' then
         return 'VIM'
       end
-      if name == 'tohtml' then
-        return 'Lua module: tohtml'
-      end
       return 'Lua module: vim.' .. name
     end,
     helptag_fmt = function(name)
@@ -242,8 +256,6 @@ local config = {
         return 'lua-vim-system'
       elseif name == '_options' then
         return 'lua-vimscript'
-      elseif name == 'tohtml' then
-        return 'tohtml'
       end
       return 'vim.' .. name:lower()
     end,
@@ -279,8 +291,10 @@ local config = {
       'folding_range.lua',
       'handlers.lua',
       'inlay_hint.lua',
+      'inline_completion.lua',
       'linked_editing_range.lua',
       'log.lua',
+      'on_type_formatting.lua',
       'rpc.lua',
       'semantic_tokens.lua',
       'tagfunc.lua',
@@ -370,25 +384,6 @@ local config = {
       return 'treesitter-' .. name:lower()
     end,
   },
-  editorconfig = {
-    filename = 'editorconfig.txt',
-    files = {
-      'runtime/lua/editorconfig.lua',
-    },
-    section_order = {
-      'editorconfig.lua',
-    },
-    section_fmt = function(_name)
-      return 'EditorConfig integration'
-    end,
-    helptag_fmt = function(name)
-      return name:lower()
-    end,
-    fn_xform = function(fun)
-      fun.table = true
-      fun.name = vim.split(fun.name, '.', { plain = true })[2]
-    end,
-  },
   health = {
     filename = 'health.txt',
     files = {
@@ -413,6 +408,30 @@ local config = {
     end,
     helptag_fmt = function()
       return { 'vim.pack' }
+    end,
+  },
+  plugins = {
+    filename = 'plugins.txt',
+    section_order = {
+      'editorconfig.lua',
+      'tohtml.lua',
+    },
+    files = {
+      'runtime/lua/editorconfig.lua',
+      'runtime/lua/tohtml.lua',
+    },
+    fn_xform = function(fun)
+      if fun.module == 'editorconfig' then
+        -- Example: "editorconfig.properties.root()" => "editorconfig.root"
+        fun.table = true
+        fun.name = vim.split(fun.name, '.', { plain = true })[2] or fun.name
+      end
+    end,
+    section_fmt = function(name)
+      return 'Builtin plugin: ' .. name:lower()
+    end,
+    helptag_fmt = function(name)
+      return name:lower()
     end,
   },
 }
@@ -586,7 +605,7 @@ local function render_fields_or_params(xs, generics, classes, cfg)
     inline_type(p, classes)
     local nm, ty = p.name, p.type
 
-    local desc = p.classvar and string.format('See |%s|.', cfg.fn_helptag_fmt(p)) or p.desc
+    local desc = p.classvar and fmt('See |%s|.', cfg.fn_helptag_fmt(p)) or p.desc
 
     local fnm = p.kind == 'operator' and fmt('op(%s)', nm) or fmt_field_name(nm)
     local pnm = fmt('      • %-' .. indent .. 's', fnm)
@@ -1066,7 +1085,7 @@ local function gen_target(cfg)
   for _, f in ipairs(cfg.section_order) do
     local section = sections[f]
     if section then
-      print(string.format("    Rendering section: '%s'", section.title))
+      print(fmt("    Rendering section: '%s'", section.title))
       local add_sep_and_header = not vim.tbl_contains(cfg.append_only or {}, f)
       docs[#docs + 1] = render_section(section, add_sep_and_header)
     end

@@ -405,7 +405,7 @@ do
     vim.keymap.set('n', '[<C-T>', function()
       -- count doesn't work with :ptprevious, must use range. See #30641.
       cmd({ cmd = 'ptprevious', range = { vim.v.count1 } })
-    end, { desc = ' :ptprevious' })
+    end, { desc = ':ptprevious' })
 
     vim.keymap.set('n', ']<C-T>', function()
       -- count doesn't work with :ptnext, must use range. See #30641.
@@ -839,7 +839,7 @@ do
         end,
       })
 
-      io.stdout:write('\027]11;?\007')
+      vim.api.nvim_ui_send('\027]11;?\007')
     end
 
     --- If the TUI (term_has_truecolor) was able to determine that the host
@@ -927,7 +927,7 @@ do
         local decrqss = '\027P$qm\027\\'
 
         -- Reset attributes first, as other code may have set attributes.
-        io.stdout:write(string.format('\027[0m\027[48;2;%d;%d;%dm%s', r, g, b, decrqss))
+        vim.api.nvim_ui_send(string.format('\027[0m\027[48;2;%d;%d;%dm%s', r, g, b, decrqss))
 
         timer:start(1000, 0, function()
           -- Delete the autocommand if no response was received
