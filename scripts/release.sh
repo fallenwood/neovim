@@ -44,7 +44,7 @@ __API_LEVEL=$(grep 'set(NVIM_API_LEVEL ' CMakeLists.txt\
 __RELEASE_MSG="NVIM v${__VERSION}
 
 "
-__BUMP_MSG="version bump"
+__BUMP_MSG="build: version bump"
 
 echo "Most recent tag: ${__LAST_TAG}"
 echo "Release version: ${__VERSION}"
@@ -97,5 +97,5 @@ echo "
 Next steps:
     - Run tests/CI (version_spec.lua)!
     - Push the tag:
-        git push --follow-tags
+        git push origin tag v${__VERSION}
     - Update website: index.html"

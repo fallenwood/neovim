@@ -529,9 +529,7 @@ typedef struct {
   int si_newcompID;             // current value for compound ID
 } spellinfo_T;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "spellfile.c.generated.h"
-#endif
+#include "spellfile.c.generated.h"
 
 /// Read n bytes from fd to buf, returning on errors
 ///
@@ -610,6 +608,7 @@ slang_T *spell_load_file(char *fname, char *lang, slang_T *old_lp, bool silent)
   slang_T *lp = NULL;
   int res;
   bool did_estack_push = false;
+  ESTACK_CHECK_DECLARATION;
 
   FILE *fd = os_fopen(fname, "r");
   if (fd == NULL) {
@@ -642,6 +641,7 @@ slang_T *spell_load_file(char *fname, char *lang, slang_T *old_lp, bool silent)
 
   // Set sourcing_name, so that error messages mention the file name.
   estack_push(ETYPE_SPELL, fname, 0);
+  ESTACK_CHECK_SETUP;
   did_estack_push = true;
 
   // <HEADER>: <fileID>
@@ -683,6 +683,7 @@ slang_T *spell_load_file(char *fname, char *lang, slang_T *old_lp, bool silent)
     res = 0;
     switch (n) {
     case SN_INFO:
+      XFREE_CLEAR(lp->sl_info);
       lp->sl_info = read_string(fd, (size_t)len);  // <infotext>
       if (lp->sl_info == NULL) {
         goto endFAIL;
@@ -839,6 +840,7 @@ endOK:
     fclose(fd);
   }
   if (did_estack_push) {
+    ESTACK_CHECK_NOW;
     estack_pop();
   }
 
@@ -5432,7 +5434,7 @@ void spell_add_word(char *word, int len, SpellAddType what, int idx, bool undo)
         break;
       }
       if (*spf == NUL) {
-        semsg(_("E765: 'spellfile' does not have %" PRId64 " entries"), (int64_t)idx);
+        semsg(_("E765: 'spellfile' does not have %d entries"), idx);
         xfree(fnamebuf);
         return;
       }

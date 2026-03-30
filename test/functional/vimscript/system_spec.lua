@@ -131,11 +131,16 @@ describe('system()', function()
 
     before_each(function()
       screen = Screen.new()
+      t.write_file('Xmorefile', ('line1\nline2\nline3\n'):rep(10))
+    end)
+
+    after_each(function()
+      os.remove('Xmorefile')
     end)
 
     if is_os('win') then
       local function test_more()
-        eq('root = true', eval([[get(split(system('"more" ".editorconfig"'), "\n"), 0, '')]]))
+        eq('line1', eval([[get(split(system('"more" "Xmorefile"'), "\n"), 0, '')]]))
       end
       local function test_shell_unquoting()
         eval([[system('"ping" "-n" "1" "127.0.0.1"')]])
@@ -196,10 +201,10 @@ describe('system()', function()
       n.set_shell_powershell()
       eq('ああ\n', eval([[system('Write-Output "ああ"')]]))
       -- Sanity test w/ default encoding
-      -- * on Windows, expected to default to Western European enc
+      -- * on Windows, UTF-8 still works.
       -- * on Linux, expected to default to UTF8
       command([[let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command ']])
-      eq(is_os('win') and '??\n' or 'ああ\n', eval([[system('Write-Output "ああ"')]]))
+      eq('ああ\n', eval([[system('Write-Output "ああ"')]]))
     end)
 
     it('`echo` and waits for its return', function()
@@ -548,10 +553,10 @@ describe('systemlist()', function()
     n.set_shell_powershell()
     eq({ is_os('win') and 'あ\r' or 'あ' }, eval([[systemlist('Write-Output あ')]]))
     -- Sanity test w/ default encoding
-    -- * on Windows, expected to default to Western European enc
+    -- * on Windows, UTF-8 still works.
     -- * on Linux, expected to default to UTF8
     command([[let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command ']])
-    eq({ is_os('win') and '?\r' or 'あ' }, eval([[systemlist('Write-Output あ')]]))
+    eq({ is_os('win') and 'あ\r' or 'あ' }, eval([[systemlist('Write-Output あ')]]))
   end)
 end)
 

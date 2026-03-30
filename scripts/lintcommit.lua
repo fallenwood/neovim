@@ -27,8 +27,9 @@ local function run(cmd, or_die)
   if _trace then
     p('run: ' .. vim.inspect(cmd))
   end
-  local rv = vim.trim(vim.fn.system(cmd)) or ''
-  if vim.v.shell_error ~= 0 then
+  local res = vim.system(cmd):wait()
+  local rv = vim.trim(res.stdout)
+  if res.code ~= 0 then
     if or_die then
       p(rv)
       os.exit(1)
@@ -45,6 +46,11 @@ local function validate_commit(commit_message)
   -- Return nil if the type is vim-patch since most of the normal rules don't
   -- apply.
   if commit_split[1] == 'vim-patch' then
+    return nil
+  end
+
+  -- Skip release commits.
+  if commit_message:match('^NVIM v%d+%.%d+%.%d+') then
     return nil
   end
 
@@ -211,6 +217,7 @@ function M._test()
   local test_cases = {
     ['ci: normal message'] = true,
     ['build: normal message'] = true,
+    ['build: version bump'] = true,
     ['docs: normal message'] = true,
     ['feat: normal message'] = true,
     ['fix: normal message'] = true,
@@ -223,6 +230,7 @@ function M._test()
     ['ci(tui)!: message with scope and breaking change'] = true,
     ['vim-patch:8.2.3374: Pyret files are not recognized (#15642)'] = true,
     ['vim-patch:8.1.1195,8.2.{3417,3419}'] = true,
+    ['NVIM v0.12.0'] = true,
     ['revert: "ci: use continue-on-error instead of "|| true""'] = true,
     ['fixup'] = false,
     ['fixup: commit message'] = false,

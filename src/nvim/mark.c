@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nvim/api/private/helpers.h"
 #include "nvim/ascii_defs.h"
+#include "nvim/autocmd.h"
 #include "nvim/buffer.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
@@ -39,6 +41,7 @@
 #include "nvim/os/time.h"
 #include "nvim/os/time_defs.h"
 #include "nvim/path.h"
+#include "nvim/plines.h"
 #include "nvim/pos_defs.h"
 #include "nvim/quickfix.h"
 #include "nvim/strings.h"
@@ -55,15 +58,13 @@
 // There are marks 'A - 'Z (set by user) and '0 to '9 (set when writing
 // shada).
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "mark.c.generated.h"
-#endif
+#include "mark.c.generated.h"
 
 // Set named mark "c" at current cursor position.
 // Returns OK on success, FAIL if bad name given.
 int setmark(int c)
 {
-  fmarkv_T view = mark_view_make(curwin->w_topline, curwin->w_cursor);
+  fmarkv_T view = mark_view_make(curwin, curwin->w_cursor);
   return setmark_pos(c, &curwin->w_cursor, curbuf->b_fnum, &view);
 }
 
@@ -87,6 +88,25 @@ void clear_fmark(fmark_T *const fm, const Timestamp timestamp)
   free_fmark(*fm);
   *fm = (fmark_T)INIT_FMARK;
   fm->timestamp = timestamp;
+}
+
+/// Schedules "MarkSet" event.
+///
+/// @param c The name of the mark, e.g., 'a'.
+/// @param pos Position of the mark in the buffer.
+/// @param buf The buffer of the mark.
+static void do_markset_autocmd(char c, pos_T *pos, buf_T *buf)
+{
+  if (!has_event(EVENT_MARKSET)) {
+    return;
+  }
+
+  MAXSIZE_TEMP_DICT(data, 3);
+  char mark_str[2] = { c, '\0' };
+  PUT_C(data, "name", STRING_OBJ(((String){ .data = mark_str, .size = 1 })));
+  PUT_C(data, "line", INTEGER_OBJ(pos->lnum));
+  PUT_C(data, "col", INTEGER_OBJ(pos->col));
+  aucmd_defer(EVENT_MARKSET, mark_str, NULL, AUGROUP_ALL, buf, NULL, &DICT_OBJ(data));
 }
 
 // Set named mark "c" to position "pos".
@@ -121,6 +141,7 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
 
   if (c == '"') {
     RESET_FMARK(&buf->b_last_cursor, *pos, buf->b_fnum, view);
+    do_markset_autocmd((char)c, pos, buf);
     return OK;
   }
 
@@ -128,10 +149,12 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
   // file.
   if (c == '[') {
     buf->b_op_start = *pos;
+    do_markset_autocmd((char)c, pos, buf);
     return OK;
   }
   if (c == ']') {
     buf->b_op_end = *pos;
+    do_markset_autocmd((char)c, pos, buf);
     return OK;
   }
 
@@ -145,12 +168,19 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
       // Visual_mode has not yet been set, use a sane default.
       buf->b_visual.vi_mode = 'v';
     }
+    do_markset_autocmd((char)c, pos, buf);
+    return OK;
+  }
+
+  if (c == ':' && bt_prompt(buf)) {
+    RESET_FMARK(&buf->b_prompt_start, *pos, buf->b_fnum, view);
     return OK;
   }
 
   if (ASCII_ISLOWER(c)) {
     i = c - 'a';
     RESET_FMARK(buf->b_namedm + i, *pos, fnum, view);
+    do_markset_autocmd((char)c, pos, buf);
     return OK;
   }
   if (ASCII_ISUPPER(c) || ascii_isdigit(c)) {
@@ -160,6 +190,7 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
       i = c - 'A';
     }
     RESET_XFMARK(namedfm + i, *pos, fnum, view, NULL);
+    do_markset_autocmd((char)c, pos, buf);
     return OK;
   }
   return FAIL;
@@ -253,7 +284,7 @@ void setpcmark(void)
   curwin->w_jumplistidx = curwin->w_jumplistlen;
   fm = &curwin->w_jumplist[curwin->w_jumplistlen - 1];
 
-  fmarkv_T view = mark_view_make(curwin->w_topline, curwin->w_pcmark);
+  fmarkv_T view = mark_view_make(curwin, curwin->w_pcmark);
   SET_XFMARK(fm, curwin->w_pcmark, curbuf->b_fnum, view, NULL);
 }
 
@@ -661,13 +692,17 @@ void mark_view_restore(fmark_T *fm)
     // and this check can prevent restoring mark view in that case.
     if (topline >= 1) {
       set_topline(curwin, topline);
+      curwin->w_skipcol = (fm->view.skipcol > 0
+                           && !hasFolding(curwin, topline, NULL, NULL)
+                           && fm->view.skipcol < linetabsize_eol(curwin, topline))
+                          ? fm->view.skipcol : 0;
     }
   }
 }
 
-fmarkv_T mark_view_make(linenr_T topline, pos_T pos)
+fmarkv_T mark_view_make(const win_T *wp, pos_T pos)
 {
-  return (fmarkv_T){ pos.lnum - topline };
+  return (fmarkv_T){ pos.lnum - wp->w_topline, wp->w_skipcol };
 }
 
 /// Search for the next named mark in the current file from a start position.
@@ -717,11 +752,7 @@ static void fname2fnum(xfmark_T *fm)
 
   // First expand "~/" in the file name to the home directory.
   // Don't expand the whole name, it may contain other '~' chars.
-#ifdef BACKSLASH_IN_FILENAME
-  if (fm->fname[0] == '~' && (fm->fname[1] == '/' || fm->fname[1] == '\\')) {
-#else
-  if (fm->fname[0] == '~' && (fm->fname[1] == '/')) {
-#endif
+  if (fm->fname[0] == '~' && vim_ispathsep_nocolon(fm->fname[1])) {
     size_t len = expand_env("~/", NameBuff, MAXPATHL);
     xstrlcpy(NameBuff + len, fm->fname + 2, MAXPATHL - len);
   } else {
@@ -1154,7 +1185,7 @@ void ex_changes(exarg_T *eap)
     } \
   }
 
-// don't delete the line, just put at first deleted line
+// "NO DELete": don't delete the line, just put at first deleted line.
 #define ONE_ADJUST_NODEL(add) \
   { \
     lp = add; \
@@ -1166,6 +1197,23 @@ void ex_changes(exarg_T *eap)
       } \
     } else if (amount_after && *lp > line2) { \
       *lp += amount_after; \
+    } \
+  }
+
+// Like ONE_ADJUST_NODEL(), but if the position is within the deleted range,
+// move it to the start of the line before the range.
+#define ONE_ADJUST_CURSOR(pp) \
+  { \
+    pos_T *posp = pp; \
+    if (posp->lnum >= line1 && posp->lnum <= line2) { \
+      if (amount == MAXLNUM) {  /* line with cursor is deleted */ \
+        posp->lnum = MAX(line1 - 1, 1); \
+        posp->col = 0; \
+      } else {  /* keep cursor on the same line */ \
+        posp->lnum += amount; \
+      } \
+    } else if (amount_after && posp->lnum > line2) { \
+      posp->lnum += amount_after; \
     } \
   }
 
@@ -1181,7 +1229,7 @@ void ex_changes(exarg_T *eap)
 void mark_adjust(linenr_T line1, linenr_T line2, linenr_T amount, linenr_T amount_after,
                  ExtmarkOp op)
 {
-  mark_adjust_buf(curbuf, line1, line2, amount, amount_after, true, false, op);
+  mark_adjust_buf(curbuf, line1, line2, amount, amount_after, true, kMarkAdjustNormal, op);
 }
 
 // mark_adjust_nofold() does the same as mark_adjust() but without adjusting
@@ -1192,11 +1240,11 @@ void mark_adjust(linenr_T line1, linenr_T line2, linenr_T amount, linenr_T amoun
 void mark_adjust_nofold(linenr_T line1, linenr_T line2, linenr_T amount, linenr_T amount_after,
                         ExtmarkOp op)
 {
-  mark_adjust_buf(curbuf, line1, line2, amount, amount_after, false, false, op);
+  mark_adjust_buf(curbuf, line1, line2, amount, amount_after, false, kMarkAdjustNormal, op);
 }
 
 void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount,
-                     linenr_T amount_after, bool adjust_folds, bool by_api, ExtmarkOp op)
+                     linenr_T amount_after, bool adjust_folds, MarkAdjustMode mode, ExtmarkOp op)
 {
   int fnum = buf->b_fnum;
   linenr_T *lp;
@@ -1205,6 +1253,9 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
   if (line2 < line1 && amount_after == 0) {        // nothing to do
     return;
   }
+
+  bool by_api = mode == kMarkAdjustApi;
+  bool by_term = mode == kMarkAdjustTerm;
 
   if ((cmdmod.cmod_flags & CMOD_LOCKMARKS) == 0) {
     // named marks, lower case and upper case
@@ -1227,12 +1278,13 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
     ONE_ADJUST(&(buf->b_last_change.mark.lnum));
 
     // last cursor position, if it was set
-    if (!equalpos(buf->b_last_cursor.mark, initpos)) {
+    if (!equalpos(buf->b_last_cursor.mark, initpos)
+        && (!by_term || buf->b_last_cursor.mark.lnum < buf->b_ml.ml_line_count)) {
       ONE_ADJUST(&(buf->b_last_cursor.mark.lnum));
     }
 
     // on prompt buffer adjust the last prompt start location mark
-    if (bt_prompt(curbuf)) {
+    if (bt_prompt(buf)) {
       ONE_ADJUST_NODEL(&(buf->b_prompt_start.mark.lnum));
     }
 
@@ -1306,7 +1358,7 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
 
       // topline and cursor position for windows with the same buffer
       // other than the current window
-      if (win != curwin || by_api) {
+      if (by_api || (by_term ? win->w_cursor.lnum < buf->b_ml.ml_line_count : win != curwin)) {
         if (win->w_topline >= line1 && win->w_topline <= line2) {
           if (amount == MAXLNUM) {                  // topline is deleted
             if (by_api && amount_after > line1 - line2 - 1) {
@@ -1321,28 +1373,16 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
             win->w_topline += amount;
           }
           win->w_topfill = 0;
-          // api: display new line if inserted right at topline
-          // TODO(bfredl): maybe always?
-        } else if (amount_after && win->w_topline > line2 + (by_api ? 1 : 0)) {
+        } else if (amount_after
+                   // api: display new line if inserted right at topline
+                   // TODO(bfredl): maybe always?
+                   && win->w_topline > line2 + (by_api && line2 < line1 ? 1 : 0)) {
           win->w_topline += amount_after;
           win->w_topfill = 0;
         }
       }
-      if (win != curwin && !by_api) {
-        if (win->w_cursor.lnum >= line1 && win->w_cursor.lnum <= line2) {
-          if (amount == MAXLNUM) {         // line with cursor is deleted
-            if (line1 <= 1) {
-              win->w_cursor.lnum = 1;
-            } else {
-              win->w_cursor.lnum = line1 - 1;
-            }
-            win->w_cursor.col = 0;
-          } else {                      // keep cursor on the same line
-            win->w_cursor.lnum += amount;
-          }
-        } else if (amount_after && win->w_cursor.lnum > line2) {
-          win->w_cursor.lnum += amount_after;
-        }
+      if (!by_api && (by_term ? win->w_cursor.lnum < buf->b_ml.ml_line_count : win != curwin)) {
+        ONE_ADJUST_CURSOR(&(win->w_cursor));
       }
 
       if (adjust_folds) {
@@ -1353,6 +1393,14 @@ void mark_adjust_buf(buf_T *buf, linenr_T line1, linenr_T line2, linenr_T amount
 
   // adjust diffs
   diff_mark_adjust(buf, line1, line2, amount, amount_after);
+
+  // adjust per-window "last cursor" positions
+  for (size_t i = 0; i < kv_size(buf->b_wininfo); i++) {
+    WinInfo *wip = kv_A(buf->b_wininfo, i);
+    if (!by_term || wip->wi_mark.mark.lnum < buf->b_ml.ml_line_count) {
+      ONE_ADJUST_CURSOR(&(wip->wi_mark.mark));
+    }
+  }
 }
 
 // This code is used often, needs to be fast.
@@ -1404,6 +1452,10 @@ void mark_col_adjust(linenr_T lnum, colnr_T mincol, linenr_T lnum_amount, colnr_
 
   // last change position
   COL_ADJUST(&(curbuf->b_last_change.mark));
+
+  if (bt_prompt(curbuf)) {
+    COL_ADJUST(&(curbuf->b_prompt_start.mark));
+  }
 
   // list of change positions
   for (int i = 0; i < curbuf->b_changelistlen; i++) {
@@ -1726,8 +1778,7 @@ bool mark_set_local(const char name, buf_T *const buf, const fmark_T fm, const b
   } else if (name == '^') {
     fm_tgt = &(buf->b_last_insert);
   } else if (name == ':') {
-    // Readonly mark for prompt buffer. Can't be edited on user side.
-    return false;
+    fm_tgt = &(buf->b_prompt_start);
   } else if (name == '.') {
     fm_tgt = &(buf->b_last_change);
   } else {

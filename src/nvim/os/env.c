@@ -15,6 +15,8 @@
 #include "nvim/cmdexpand.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/eval.h"
+#include "nvim/eval/fs.h"
+#include "nvim/eval/vars.h"
 #include "nvim/globals.h"
 #include "nvim/log.h"
 #include "nvim/macros_defs.h"
@@ -39,6 +41,10 @@
 # include "nvim/fileio.h"
 #endif
 
+#ifdef __APPLE__
+# include <mach/task.h>
+#endif
+
 #ifdef HAVE__NSGETENVIRON
 # include <crt_externs.h>
 #endif
@@ -47,10 +53,14 @@
 # include <sys/utsname.h>
 #endif
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "auto/pathdef.h"
-# include "os/env.c.generated.h"
-#endif
+#include "auto/pathdef.h"
+
+#include "os/env.c.generated.h"
+
+void env_init(void)
+{
+  nvim_testing = os_env_exists("NVIM_TEST", false);
+}
 
 /// Like getenv(), but returns NULL if the variable is empty.
 /// Result must be freed by the caller.
@@ -90,34 +100,49 @@ end:
   return e;
 }
 
-/// Like getenv(), but returns a pointer to `NameBuff` instead of allocating, or NULL on failure.
-/// Value is truncated if it exceeds sizeof(NameBuff).
+/// Like getenv(), but stores the value in `buf` instead of allocating.
+/// Value is truncated if it exceeds `bufsize`.
+///
+/// @return `buf` on success, NULL on failure
 /// @see os_env_exists
-char *os_getenv_noalloc(const char *name)
+/// @see os_getenv_noalloc
+char *os_getenv_buf(const char *const name, char *const buf, const size_t bufsize)
   FUNC_ATTR_NONNULL_ALL
 {
   if (name[0] == NUL) {
     return NULL;
   }
 
-  size_t size = sizeof(NameBuff);
-  int r = uv_os_getenv(name, NameBuff, &size);
+  size_t size = bufsize;
+  int r = uv_os_getenv(name, buf, &size);
   if (r == UV_ENOBUFS) {
     char *e = xmalloc(size);
     r = uv_os_getenv(name, e, &size);
     if (r == 0 && size != 0 && e[0] != NUL) {
-      xmemcpyz(NameBuff, e, sizeof(NameBuff) - 1);
+      xmemcpyz(buf, e, MIN(bufsize, size) - 1);
     }
     xfree(e);
   }
 
-  if (r != 0 || size == 0 || NameBuff[0] == NUL) {
+  if (r != 0 || size == 0 || buf[0] == NUL) {
     if (r != 0 && r != UV_ENOENT && r != UV_UNKNOWN) {
       ELOG("uv_os_getenv(%s) failed: %d %s", name, r, uv_err_name(r));
     }
     return NULL;
   }
-  return NameBuff;
+  return buf;
+}
+
+/// Like getenv(), but use `NameBuff` instead of allocating.
+/// Value is truncated if it exceeds sizeof(NameBuff).
+///
+/// @return pointer to `NameBuff` on success, NULL on failure
+/// @see os_env_exists
+/// @see os_getenv_buf
+char *os_getenv_noalloc(const char *name)
+  FUNC_ATTR_NONNULL_ALL
+{
+  return os_getenv_buf(name, NameBuff, sizeof(NameBuff));
 }
 
 /// Returns true if environment variable `name` is defined (even if empty).
@@ -365,6 +390,18 @@ int64_t os_get_pid(void)
   return (int64_t)GetCurrentProcessId();
 #else
   return (int64_t)getpid();
+#endif
+}
+
+/// Signals to the OS that Nvim is an application for "interactive work"
+/// which should be prioritized similar to a GUI app.
+void os_hint_priority(void)
+{
+#ifdef __APPLE__
+  // By default, processes have the TASK_UNSPECIFIED "role", which means all of its threads are
+  // clamped to Default QoS. Setting the role to TASK_DEFAULT_APPLICATION removes this clamp.
+  integer_t policy = TASK_DEFAULT_APPLICATION;
+  task_policy_set(mach_task_self(), TASK_CATEGORY_POLICY, &policy, 1);
 #endif
 }
 
@@ -781,20 +818,15 @@ size_t expand_env_esc(const char *restrict srcp, char *restrict dst, int dstlen,
   return (size_t)(dst - dst_start);
 }
 
-/// Check if the directory "vimdir/<version>" or "vimdir/runtime" exists.
+/// Check if the directory "vimdir/runtime" exists.
 /// Return NULL if not, return its name in allocated memory otherwise.
 /// @param vimdir directory to test
-static char *vim_version_dir(const char *vimdir)
+static char *vim_runtime_dir(const char *vimdir)
 {
   if (vimdir == NULL || *vimdir == NUL) {
     return NULL;
   }
-  char *p = concat_fnames(vimdir, VIM_VERSION_NODOT, true);
-  if (os_isdir(p)) {
-    return p;
-  }
-  xfree(p);
-  p = concat_fnames(vimdir, RUNTIME_DIRNAME, true);
+  char *p = concat_fnames(vimdir, RUNTIME_DIRNAME, true);
   if (os_isdir(p)) {
     return p;
   }
@@ -946,7 +978,7 @@ char *vim_getenv(const char *name)
       && *default_vimruntime_dir == NUL) {
     kos_env_path = os_getenv("VIM");    // kos_env_path was NULL.
     if (kos_env_path != NULL) {
-      vim_path = vim_version_dir(kos_env_path);
+      vim_path = vim_runtime_dir(kos_env_path);
       if (vim_path == NULL) {
         vim_path = kos_env_path;
       } else {
@@ -981,10 +1013,9 @@ char *vim_getenv(const char *name)
         vim_path_end = remove_tail(vim_path, vim_path_end, "doc");
       }
 
-      // for $VIM, remove "runtime/" or "vim54/", if present
+      // for $VIM, remove "runtime/", if present
       if (!vimruntime) {
         vim_path_end = remove_tail(vim_path, vim_path_end, RUNTIME_DIRNAME);
-        vim_path_end = remove_tail(vim_path, vim_path_end, VIM_VERSION_NODOT);
       }
 
       // remove trailing path separator
@@ -1012,7 +1043,7 @@ char *vim_getenv(const char *name)
       vim_path = xstrdup(default_vimruntime_dir);
     } else if (*default_vim_dir != NUL) {
       if (vimruntime
-          && (vim_path = vim_version_dir(default_vim_dir)) == NULL) {
+          && (vim_path = vim_runtime_dir(default_vim_dir)) == NULL) {
         vim_path = xstrdup(default_vim_dir);
       }
     }
@@ -1280,3 +1311,19 @@ void vim_setenv_ext(const char *name, const char *val)
     didset_vimruntime = false;
   }
 }
+
+#ifdef MSWIN
+/// Restore a previous environment variable value, or unset it if NULL.
+/// "must_free" indicates whether "old_value" was allocated.
+void restore_env_var(const char *name, char *old_value, bool must_free)
+{
+  if (old_value != NULL) {
+    os_setenv(name, old_value, true);
+    if (must_free) {
+      xfree(old_value);
+    }
+    return;
+  }
+  os_unsetenv(name);
+}
+#endif

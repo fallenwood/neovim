@@ -4,24 +4,28 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const upstream = b.dependency("unibilium", .{});
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "unibilium",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    lib.addIncludePath(upstream.path(""));
+    if (b.lazyDependency("unibilium", .{})) |upstream| {
+        lib.addIncludePath(upstream.path(""));
 
-    lib.installHeader(upstream.path("unibilium.h"), "unibilium.h");
+        lib.installHeader(upstream.path("unibilium.h"), "unibilium.h");
 
-    lib.linkLibC();
+        lib.linkLibC();
 
-    lib.addCSourceFiles(.{ .root = upstream.path(""), .files = &.{
-        "unibilium.c",
-        "uninames.c",
-        "uniutil.c",
-    }, .flags = &.{"-DTERMINFO_DIRS=\"/etc/terminfo:/usr/share/terminfo\""} });
+        lib.addCSourceFiles(.{ .root = upstream.path(""), .files = &.{
+            "unibilium.c",
+            "uninames.c",
+            "uniutil.c",
+        }, .flags = &.{"-DTERMINFO_DIRS=\"/etc/terminfo:/usr/share/terminfo\""} });
+    }
 
     b.installArtifact(lib);
 }

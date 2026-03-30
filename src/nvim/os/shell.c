@@ -11,8 +11,8 @@
 #include "nvim/buffer.h"
 #include "nvim/charset.h"
 #include "nvim/errors.h"
-#include "nvim/eval.h"
 #include "nvim/eval/typval_defs.h"
+#include "nvim/eval/vars.h"
 #include "nvim/event/defs.h"
 #include "nvim/event/libuv_proc.h"
 #include "nvim/event/loop.h"
@@ -33,6 +33,7 @@
 #include "nvim/message.h"
 #include "nvim/option_vars.h"
 #include "nvim/os/fs.h"
+#include "nvim/os/os.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/os/shell.h"
 #include "nvim/os/signal.h"
@@ -50,11 +51,9 @@
 #define NS_1_SECOND         1000000000U     // 1 second, in nanoseconds
 #define OUT_DATA_THRESHOLD  1024 * 10U      // 10KB, "a few screenfuls" of data.
 
-#define SHELL_SPECIAL "\t \"&'$;<>()\\|"
+#define SHELL_SPECIAL "\t \"&'$;<>()\\|\n"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "os/shell.c.generated.h"
-#endif
+#include "os/shell.c.generated.h"
 
 static void save_patterns(int num_pat, char **pat, int *num_file, char ***file)
 {
@@ -416,7 +415,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   os_remove(tempname);
   if (readlen != len) {
     // unexpected read error
-    semsg(_(e_notread), tempname);
+    semsg(_(e_cant_read_file_str), tempname);
     xfree(tempname);
     xfree(buffer);
     return FAIL;
@@ -701,9 +700,11 @@ int os_call_shell(char *cmd, int opts, char *extra_args)
 
   if (!emsg_silent && exitcode != 0 && !(opts & kShellOptSilent)) {
     msg_ext_set_kind("shell_ret");
-    msg_puts(_("\nshell returned "));
+    if (!ui_has(kUIMessages)) {
+      msg_putchar('\n');
+    }
+    msg_puts(_("shell returned "));
     msg_outnum(exitcode);
-    msg_putchar('\n');
   }
 
   State = current_state;
@@ -791,21 +792,26 @@ char *get_cmd_output(char *cmd, char *infile, int flags, size_t *ret_len)
   // read the names from the file into memory
   FILE *fd = os_fopen(tempname, READBIN);
 
-  if (fd == NULL) {
-    semsg(_(e_notopen), tempname);
+  // Not being able to seek means we can't read the file.
+  long len_l;
+  if (fd == NULL
+      || fseek(fd, 0L, SEEK_END) == -1
+      || (len_l = ftell(fd)) == -1         // get size of temp file
+      || fseek(fd, 0L, SEEK_SET) == -1) {  // back to the start
+    semsg(_(e_cannot_read_from_str_2), tempname);
+    if (fd != NULL) {
+      fclose(fd);
+    }
     goto done;
   }
 
-  fseek(fd, 0, SEEK_END);
-  size_t len = (size_t)ftell(fd);  // get size of temp file
-  fseek(fd, 0, SEEK_SET);
-
+  size_t len = (size_t)len_l;
   buffer = xmalloc(len + 1);
   size_t i = fread(buffer, 1, len, fd);
   fclose(fd);
   os_remove(tempname);
   if (i != len) {
-    semsg(_(e_notread), tempname);
+    semsg(_(e_cant_read_file_str), tempname);
     XFREE_CLEAR(buffer);
   } else if (ret_len == NULL) {
     // Change NUL into SOH, otherwise the string is truncated.
@@ -854,6 +860,15 @@ int os_system(char **argv, const char *input, size_t len, char **output,
 static int do_os_system(char **argv, const char *input, size_t len, char **output, size_t *nread,
                         bool silent, bool forward_output)
 {
+  int exitcode = -1;
+
+#ifdef MSWIN
+  // do not execute anything from the current directory by setting the
+  // environment variable $NoDefaultCurrentDirectoryInExePath
+  char *oldval = os_getenv("NoDefaultCurrentDirectoryInExePath");
+  os_setenv("NoDefaultCurrentDirectoryInExePath", "1", true);
+#endif
+
   out_data_decide_throttle(0);  // Initialize throttle decider.
   out_data_ring(NULL, 0);       // Initialize output ring-buffer.
   bool has_input = (input != NULL && len > 0);
@@ -891,8 +906,7 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
       msg_outtrans(prog, 0, false);
       msg_putchar('\n');
     }
-    multiqueue_free(events);
-    return -1;
+    goto end;
   }
 
   // Note: unlike process events, stream events are not queued, as we want to
@@ -911,10 +925,10 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
   if (has_input) {
     WBuffer *input_buffer = wstream_new_buffer((char *)input, len, 1, NULL);
 
-    if (!wstream_write(&proc->in, input_buffer)) {
+    if (wstream_write(&proc->in, input_buffer) != 0) {
       // couldn't write, stop the process and tell the user about it
       proc_stop(proc);
-      return -1;
+      goto end;
     }
     // close the input stream after everything is written
     wstream_set_write_cb(&proc->in, shell_write_cb, NULL);
@@ -930,7 +944,7 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
     msg_no_more = true;
     lines_left = -1;
   }
-  int exitcode = proc_wait(proc, -1, NULL);
+  exitcode = proc_wait(proc, -1, NULL);
   if (!got_int && out_data_decide_throttle(0)) {
     // Last chunk of output was skipped; display it now.
     out_data_ring(NULL, SIZE_MAX);
@@ -962,7 +976,13 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
   }
 
   assert(multiqueue_empty(events));
+end:
   multiqueue_free(events);
+
+#ifdef MSWIN
+  // Restore original value of NoDefaultCurrentDirectoryInExePath
+  restore_env_var("NoDefaultCurrentDirectoryInExePath", oldval, true);
+#endif
 
   return exitcode;
 }
@@ -1102,6 +1122,7 @@ static void out_data_append_to_screen(const char *output, size_t *count, int fd,
   const char *p = output;
   const char *end = output + *count;
   msg_ext_set_kind(fd == STDERR_FILENO ? "shell_err" : "shell_out");
+  msg_ext_append = true;
   while (p < end) {
     if (*p == '\n' || *p == '\r' || *p == TAB || *p == BELL) {
       msg_putchar_hl((uint8_t)(*p), fd == STDERR_FILENO ? HLF_SE : HLF_SO);
@@ -1268,7 +1289,7 @@ static void shell_write_cb(Stream *stream, void *data, int status)
     msg_schedule_semsg(_("E5677: Error writing input to shell-command: %s"),
                        uv_err_name(status));
   }
-  stream_may_close(stream, false);
+  stream_may_close(stream);
 }
 
 /// Applies 'shellxescape' (p_sxe) and 'shellxquote' (p_sxq) to a command.

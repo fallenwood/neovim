@@ -19,7 +19,7 @@ local read_file = t.read_file
 
 describe('vim.secure', function()
   describe('read()', function()
-    local xstate = 'Xstate'
+    local xstate = 'Xstate_lua_secure'
     local screen ---@type test.functional.ui.screen
 
     before_each(function()
@@ -55,21 +55,19 @@ describe('vim.secure', function()
       })
 
       local cwd = fn.getcwd()
-      local msg = cwd .. pathsep .. 'Xfile is not trusted.'
-      if #msg >= screen._width then
-        pending('path too long')
-        return
-      end
+      local msg = 'exrc: Found untrusted code. To enable it, choose (v)iew then run `:trust`:'
+      local path = ('%s%sXfile'):format(cwd, pathsep)
 
       -- Need to use feed_command instead of exec_lua because of the confirmation prompt
       feed_command([[lua vim.secure.read('Xfile')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xfile'){MATCH: +}|
-        {3:]] .. msg .. [[}{MATCH: +}|
-        {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
+        {3:]] .. msg .. [[}{MATCH: *}|
+        {3:]] .. path .. [[}{MATCH: *}|
+        {3:[i]gnore, (v)iew, (d)eny: }^{MATCH: +}|
       ]])
       feed('d')
       screen:expect([[
@@ -87,18 +85,26 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xfile')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xfile'){MATCH: +}|
-        {3:]] .. msg .. [[}{MATCH: +}|
-        {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
+        {3:]] .. msg .. [[}{MATCH: *}|
+        {3:]] .. path .. [[}{MATCH: *}|
+        {3:[i]gnore, (v)iew, (d)eny: }^{MATCH: +}|
       ]])
-      feed('a')
+      feed('v')
+      feed(':trust<CR>')
       screen:expect([[
-        ^{MATCH: +}|
-        {1:~{MATCH: +}}|*6
+        ^let g:foobar = 42{MATCH: +}|
+        {1:~{MATCH: +}}|*2
+        {2:]] .. fn.fnamemodify(cwd, ':~') .. pathsep .. [[Xfile [RO]{MATCH: +}}|
         {MATCH: +}|
+        {1:~{MATCH: +}}|
+        {4:[No Name]{MATCH: +}}|
+        Allowed in trust database: "]] .. cwd .. pathsep .. [[Xfile"{MATCH: +}|
       ]])
+      -- close the split for the next test below.
+      feed(':q<CR>')
 
       local hash = fn.sha256(assert(read_file('Xfile')))
       trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
@@ -110,11 +116,12 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xfile')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xfile'){MATCH: +}|
-        {3:]] .. msg .. [[}{MATCH: +}|
-        {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
+        {3:]] .. msg .. [[}{MATCH: *}|
+        {3:]] .. path .. [[}{MATCH: *}|
+        {3:[i]gnore, (v)iew, (d)eny: }^{MATCH: +}|
       ]])
       feed('i')
       screen:expect([[
@@ -129,11 +136,12 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xfile')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xfile'){MATCH: +}|
         {3:]] .. msg .. [[}{MATCH: +}|
-        {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
+        {3:]] .. path .. [[}{MATCH: *}|
+        {3:[i]gnore, (v)iew, (d)eny: }^{MATCH: +}|
       ]])
       feed('v')
       screen:expect([[
@@ -163,22 +171,19 @@ describe('vim.secure', function()
       })
 
       local cwd = fn.getcwd()
-      local msg = cwd
-        .. pathsep
-        .. 'Xdir is not trusted. DIRECTORY trust is decided only by its name, not its contents.'
-      if #msg >= screen._width then
-        pending('path too long')
-        return
-      end
+      local msg =
+        'exrc: Found untrusted code. DIRECTORY trust is decided only by name, not contents:'
+      local path = ('%s%sXdir'):format(cwd, pathsep)
 
       -- Need to use feed_command instead of exec_lua because of the confirmation prompt
       feed_command([[lua vim.secure.read('Xdir')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xdir'){MATCH: +}|
         {3:]] .. msg .. [[}{MATCH: +}|
+        {3:]] .. path .. [[}{MATCH: +}|
         {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
       ]])
       feed('d')
@@ -197,10 +202,11 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xdir')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xdir'){MATCH: +}|
         {3:]] .. msg .. [[}{MATCH: +}|
+        {3:]] .. path .. [[}{MATCH: +}|
         {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
       ]])
       feed('a')
@@ -222,10 +228,11 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xdir')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xdir'){MATCH: +}|
         {3:]] .. msg .. [[}{MATCH: +}|
+        {3:]] .. path .. [[}{MATCH: +}|
         {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
       ]])
       feed('i')
@@ -241,10 +248,11 @@ describe('vim.secure', function()
       feed_command([[lua vim.secure.read('Xdir')]])
       screen:expect([[
         {MATCH: +}|
-        {1:~{MATCH: +}}|*3
+        {1:~{MATCH: +}}|*2
         {2:{MATCH: +}}|
         :lua vim.secure.read('Xdir'){MATCH: +}|
         {3:]] .. msg .. [[}{MATCH: +}|
+        {3:]] .. path .. [[}{MATCH: +}|
         {3:[i]gnore, (v)iew, (d)eny, (a)llow: }^{MATCH: +}|
       ]])
       feed('v')
@@ -264,31 +272,30 @@ describe('vim.secure', function()
   end)
 
   describe('trust()', function()
-    local xstate = 'Xstate'
+    local xstate = 'Xstate_lua_secure'
+    local test_file = 'Xtest_functional_lua_secure'
+    local test_dir = 'Xtest_functional_lua_secure_dir'
 
     setup(function()
       clear { env = { XDG_STATE_HOME = xstate } }
-      n.mkdir_p(xstate .. pathsep .. (is_os('win') and 'nvim-data' or 'nvim'))
-    end)
-
-    teardown(function()
-      n.rmdir(xstate)
     end)
 
     before_each(function()
-      t.write_file('test_file', 'test')
-      t.mkdir('test_dir')
+      n.mkdir_p(xstate .. pathsep .. (is_os('win') and 'nvim-data' or 'nvim'))
+      t.write_file(test_file, 'test')
+      t.mkdir(test_dir)
     end)
 
     after_each(function()
-      os.remove('test_file')
-      n.rmdir('test_dir')
+      os.remove(test_file)
+      n.rmdir(test_dir)
+      n.rmdir(xstate)
     end)
 
     it('returns error when passing both path and bufnr', function()
       matches(
         '"path" and "bufnr" are mutually exclusive',
-        pcall_err(exec_lua, [[vim.secure.trust({action='deny', bufnr=0, path='test_file'})]])
+        pcall_err(exec_lua, [[vim.secure.trust({action='deny', bufnr=0, path=...})]], test_file)
       )
     end)
 
@@ -301,89 +308,116 @@ describe('vim.secure', function()
 
     it('trust then deny then remove a file using bufnr', function()
       local cwd = fn.getcwd()
-      local hash = fn.sha256(read_file('test_file'))
-      local full_path = cwd .. pathsep .. 'test_file'
+      local hash = fn.sha256(assert(read_file(test_file)))
+      local full_path = cwd .. pathsep .. test_file
 
-      command('edit test_file')
+      command('edit ' .. test_file)
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='allow', bufnr=0})}]]))
-      local trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('%s %s', hash, full_path), vim.trim(trust))
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='deny', bufnr=0})}]]))
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('! %s', full_path), vim.trim(trust))
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='remove', bufnr=0})}]]))
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq('', vim.trim(trust))
     end)
 
     it('deny then trust then remove a file using bufnr', function()
       local cwd = fn.getcwd()
-      local hash = fn.sha256(read_file('test_file'))
-      local full_path = cwd .. pathsep .. 'test_file'
+      local hash = fn.sha256(assert(read_file(test_file)))
+      local full_path = cwd .. pathsep .. test_file
 
-      command('edit test_file')
+      command('edit ' .. test_file)
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='deny', bufnr=0})}]]))
-      local trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('! %s', full_path), vim.trim(trust))
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='allow', bufnr=0})}]]))
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('%s %s', hash, full_path), vim.trim(trust))
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='remove', bufnr=0})}]]))
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq('', vim.trim(trust))
     end)
 
     it('trust using bufnr then deny then remove a file using path', function()
       local cwd = fn.getcwd()
-      local hash = fn.sha256(read_file('test_file'))
-      local full_path = cwd .. pathsep .. 'test_file'
+      local hash = fn.sha256(assert(read_file(test_file)))
+      local full_path = cwd .. pathsep .. test_file
 
-      command('edit test_file')
+      command('edit ' .. test_file)
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='allow', bufnr=0})}]]))
-      local trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('%s %s', hash, full_path), vim.trim(trust))
 
       eq(
         { true, full_path },
-        exec_lua([[return {vim.secure.trust({action='deny', path='test_file'})}]])
+        exec_lua([[return {vim.secure.trust({action='deny', path=...})}]], test_file)
       )
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('! %s', full_path), vim.trim(trust))
 
       eq(
         { true, full_path },
-        exec_lua([[return {vim.secure.trust({action='remove', path='test_file'})}]])
+        exec_lua([[return {vim.secure.trust({action='remove', path=...})}]], test_file)
       )
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
+      eq('', vim.trim(trust))
+    end)
+
+    it('trust then deny then remove a file using path', function()
+      local cwd = fn.getcwd()
+      local hash = fn.sha256(assert(read_file(test_file)))
+      local full_path = cwd .. pathsep .. test_file
+
+      eq(
+        { true, full_path },
+        exec_lua([[return {vim.secure.trust({action='allow', path=...})}]], test_file)
+      )
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
+      eq(string.format('%s %s', hash, full_path), vim.trim(trust))
+
+      eq(
+        { true, full_path },
+        exec_lua([[return {vim.secure.trust({action='deny', path=...})}]], test_file)
+      )
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
+      eq(string.format('! %s', full_path), vim.trim(trust))
+
+      eq(
+        { true, full_path },
+        exec_lua([[return {vim.secure.trust({action='remove', path=...})}]], test_file)
+      )
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq('', vim.trim(trust))
     end)
 
     it('deny then trust then remove a file using bufnr', function()
       local cwd = fn.getcwd()
-      local hash = fn.sha256(read_file('test_file'))
-      local full_path = cwd .. pathsep .. 'test_file'
+      local hash = fn.sha256(assert(read_file(test_file)))
+      local full_path = cwd .. pathsep .. test_file
 
-      command('edit test_file')
+      command('edit ' .. test_file)
       eq(
         { true, full_path },
-        exec_lua([[return {vim.secure.trust({action='deny', path='test_file'})}]])
+        exec_lua([[return {vim.secure.trust({action='deny', path=...})}]], test_file)
       )
-      local trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('! %s', full_path), vim.trim(trust))
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='allow', bufnr=0})}]]))
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('%s %s', hash, full_path), vim.trim(trust))
 
       eq(
         { true, full_path },
-        exec_lua([[return {vim.secure.trust({action='remove', path='test_file'})}]])
+        exec_lua([[return {vim.secure.trust({action='remove', path=...})}]], test_file)
       )
-      trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq('', vim.trim(trust))
     end)
 
@@ -395,14 +429,22 @@ describe('vim.secure', function()
       )
     end)
 
-    it('trust directory bufnr', function()
+    it('trust then deny then remove a directory using bufnr', function()
       local cwd = fn.getcwd()
-      local full_path = cwd .. pathsep .. 'test_dir'
-      command('edit test_dir')
+      local full_path = cwd .. pathsep .. test_dir
+      command('edit ' .. test_dir)
 
       eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='allow', bufnr=0})}]]))
-      local trust = read_file(stdpath('state') .. pathsep .. 'trust')
+      local trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
       eq(string.format('directory %s', full_path), vim.trim(trust))
+
+      eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='deny', bufnr=0})}]]))
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
+      eq(string.format('! %s', full_path), vim.trim(trust))
+
+      eq({ true, full_path }, exec_lua([[return {vim.secure.trust({action='remove', bufnr=0})}]]))
+      trust = assert(read_file(stdpath('state') .. pathsep .. 'trust'))
+      eq('', vim.trim(trust))
     end)
   end)
 end)

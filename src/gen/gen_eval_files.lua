@@ -3,6 +3,7 @@
 -- Generator for various vimdoc and Lua type files
 
 local util = require('gen.util')
+local api_type = require('gen.api_types')
 local fmt = string.format
 
 local DEP_API_METADATA = arg[1]
@@ -24,51 +25,7 @@ local TEXT_WIDTH = 78
 --- @field since integer
 
 local LUA_API_RETURN_OVERRIDES = {
-  nvim_buf_get_command = 'table<string,vim.api.keyset.command_info>',
-  nvim_buf_get_extmark_by_id = 'vim.api.keyset.get_extmark_item_by_id',
-  nvim_buf_get_extmarks = 'vim.api.keyset.get_extmark_item[]',
-  nvim_buf_get_keymap = 'vim.api.keyset.get_keymap[]',
-  nvim_get_autocmds = 'vim.api.keyset.get_autocmds.ret[]',
-  nvim_get_color_map = 'table<string,integer>',
-  nvim_get_command = 'table<string,vim.api.keyset.command_info>',
-  nvim_get_keymap = 'vim.api.keyset.get_keymap[]',
-  nvim_get_mark = 'vim.api.keyset.get_mark',
-  nvim_eval_statusline = 'vim.api.keyset.eval_statusline_ret',
-
-  -- Can also return table<string,vim.api.keyset.get_hl_info>, however we need to
-  -- pick one to get some benefit.
-  -- REVISIT lewrus01 (26/01/24): we can maybe add
-  -- @overload fun(ns: integer, {}): table<string,vim.api.keyset.get_hl_info>
-  nvim_get_hl = 'vim.api.keyset.get_hl_info',
-
-  nvim_get_mode = 'vim.api.keyset.get_mode',
-  nvim_get_namespaces = 'table<string,integer>',
-  nvim_get_option_info = 'vim.api.keyset.get_option_info',
-  nvim_get_option_info2 = 'vim.api.keyset.get_option_info',
-  nvim_parse_cmd = 'vim.api.keyset.parse_cmd',
-  nvim_win_get_config = 'vim.api.keyset.win_config',
-  nvim_win_text_height = 'vim.api.keyset.win_text_height_ret',
-}
-
-local LUA_API_KEYSET_OVERRIDES = {
-  create_autocmd = {
-    callback = 'string|(fun(args: vim.api.keyset.create_autocmd.callback_args): boolean?)',
-  },
-  win_config = {
-    anchor = "'NW'|'NE'|'SW'|'SE'",
-    relative = "'cursor'|'editor'|'laststatus'|'mouse'|'tabline'|'win'",
-    split = "'left'|'right'|'above'|'below'",
-    border = "'none'|'single'|'double'|'rounded'|'solid'|'shadow'|string[]",
-    title_pos = "'center'|'left'|'right'",
-    footer_pos = "'center'|'left'|'right'",
-    style = "'minimal'",
-  },
-}
-
-local LUA_API_PARAM_OVERRIDES = {
-  nvim_create_user_command = {
-    command = 'string|fun(args: vim.api.keyset.create_user_command.command_args)',
-  },
+  nvim_win_get_config = 'vim.api.keyset.win_config_ret',
 }
 
 local LUA_META_HEADER = {
@@ -134,22 +91,6 @@ local OPTION_TYPES = {
   string = 'string',
 }
 
-local API_TYPES = {
-  Window = 'integer',
-  Tabpage = 'integer',
-  Buffer = 'integer',
-  Boolean = 'boolean',
-  Object = 'any',
-  Integer = 'integer',
-  String = 'string',
-  Array = 'any[]',
-  LuaRef = 'function',
-  Dict = 'table<string,any>',
-  Float = 'number',
-  HLGroupID = 'integer|string',
-  void = '',
-}
-
 --- @param s string
 --- @return string
 local function luaescape(s)
@@ -164,66 +105,6 @@ end
 --- @return string[]
 local function split(x, sep)
   return vim.split(x, sep or '\n', { plain = true })
-end
-
---- Convert an API type to Lua
---- @param t string
---- @return string
-local function api_type(t)
-  if vim.startswith(t, '*') then
-    return api_type(t:sub(2)) .. '?'
-  end
-
-  local as0 = t:match('^ArrayOf%((.*)%)')
-  if as0 then
-    local as = split(as0, ', ')
-    local a = api_type(as[1])
-    local count = tonumber(as[2])
-    if count then
-      return fmt('[%s]', a:rep(count, ', '))
-    else
-      return a .. '[]'
-    end
-  end
-
-  local d = t:match('^Dict%((.*)%)')
-  if d then
-    return 'vim.api.keyset.' .. d
-  end
-
-  local d0 = t:match('^DictOf%((.*)%)')
-  if d0 then
-    return 'table<string,' .. api_type(d0) .. '>'
-  end
-
-  local u = t:match('^Union%((.*)%)')
-  if u then
-    local us = vim.split(u, ',%s*')
-    return table.concat(vim.tbl_map(api_type, us), '|')
-  end
-
-  local l = t:match('^LuaRefOf%((.*)%)')
-  if l then
-    --- @type string
-    l = l:gsub('%s+', ' ')
-    --- @type string?, string?
-    local as, r = l:match('%((.*)%),%s*(.*)')
-    if not as then
-      --- @type string
-      as = assert(l:match('%((.*)%)'))
-    end
-
-    local as1 = {} --- @type string[]
-    for a in vim.gsplit(as, ',%s') do
-      local a1 = vim.split(a, '%s+', { trimempty = true })
-      local nm = a1[2]:gsub('%*(.*)$', '%1?')
-      as1[#as1 + 1] = nm .. ': ' .. api_type(a1[1])
-    end
-
-    return fmt('fun(%s)%s', table.concat(as1, ', '), r and ': ' .. api_type(r) or '')
-  end
-
-  return API_TYPES[t] or t
 end
 
 --- @param f string
@@ -297,7 +178,7 @@ local function get_api_meta()
   --- @type table<string,nvim.cdoc.parser.fun>
   local functions = {}
   for path, ty in vim.fs.dir(f) do
-    if ty == 'file' then
+    if ty == 'file' and (vim.endswith(path, '.c') or vim.endswith(path, '.h')) then
       local filename = vim.fs.joinpath(f, path)
       local _, funs = cdoc_parser.parse(filename)
       for _, fn in ipairs(funs) do
@@ -321,13 +202,11 @@ local function get_api_meta()
       sees[#sees + 1] = see.desc
     end
 
-    local pty_overrides = LUA_API_PARAM_OVERRIDES[fun.name] or {}
-
     local params = {} --- @type [string,string][]
     for _, p in ipairs(fun.params) do
       params[#params + 1] = {
         p.name,
-        api_type(pty_overrides[p.name] or p.type),
+        p.type,
         not deprecated and p.desc or nil,
       }
     end
@@ -338,7 +217,7 @@ local function get_api_meta()
       params = params,
       notes = notes,
       see = sees,
-      returns = api_type(fun.returns[1].type),
+      returns = fun.returns[1].type,
       deprecated = deprecated,
     }
 
@@ -393,6 +272,12 @@ local function render_api_meta(_f, fun, write)
     write('--- @deprecated')
   end
 
+  local internal = vim.startswith(fun.name, 'nvim__')
+  if internal or (fun.since and tonumber(fun.since) == 0) then
+    write('--- WARNING: This feature is experimental/unstable.')
+    write('---')
+  end
+
   local desc = fun.desc
   if desc then
     write(util.prefix_lines('--- ', norm_text(desc)))
@@ -429,7 +314,7 @@ local function render_api_meta(_f, fun, write)
     end
   end
 
-  if fun.returns ~= '' then
+  if fun.returns ~= 'nil' then
     local ret_desc = fun.returns_desc and ' # ' .. fun.returns_desc or ''
     local ret = LUA_API_RETURN_OVERRIDES[fun.name] or fun.returns
     write(util.prefix_lines('--- ', '@return ' .. ret .. ret_desc))
@@ -448,13 +333,16 @@ local function get_api_keysets_meta()
 
   --- @type {name: string, keys: string[], types: table<string,string>}[]
   local keysets = metadata.keysets
+  local event_type = 'vim.api.keyset.events|vim.api.keyset.events[]'
 
   for _, k in ipairs(keysets) do
-    local pty_overrides = LUA_API_KEYSET_OVERRIDES[k.name] or {}
     local params = {}
     for _, key in ipairs(k.keys) do
-      local pty = pty_overrides[key] or k.types[key] or 'any'
-      table.insert(params, { key .. '?', api_type(pty) })
+      local pty = k.types[key] or 'any'
+      table.insert(params, {
+        key .. '?',
+        k.name:find('autocmd') and key == 'event' and event_type or api_type(pty),
+      })
     end
     ret[k.name] = {
       signature = 'NA',
@@ -473,6 +361,16 @@ end
 local function render_api_keyset_meta(_f, fun, write)
   if string.sub(fun.name, 1, 1) == '_' then
     return -- not exported
+  elseif fun.name == 'create_autocmd' then
+    local events = vim.deepcopy(require('nvim.auevents'))
+    for event in pairs(events.aliases) do
+      events.events[event] = true
+    end
+    write('')
+    write('--- @alias vim.api.keyset.events')
+    for event in vim.spairs(events.events) do
+      write(("--- |'%s'"):format(event))
+    end
   end
   write('')
   write('--- @class vim.api.keyset.' .. fun.name)
@@ -503,7 +401,7 @@ local function render_eval_meta(f, fun, write)
     write('--- @deprecated')
   end
 
-  local desc = fun.desc
+  local desc = fun.desc --[[@as string?]]
 
   if desc then
     --- @type string
@@ -514,7 +412,9 @@ local function render_eval_meta(f, fun, write)
     end
   end
 
-  for _, text in ipairs(vim.fn.reverse(fun.generics or {})) do
+  for _, text in
+    ipairs(vim.fn.reverse(fun.generics or {} --[[@as string[] ]]))
+  do
     write(fmt('--- @generic %s', text))
   end
 
@@ -694,7 +594,12 @@ local function render_option_meta(_f, opt, write)
     write('--- @type ' .. OPTION_TYPES[opt.type])
   end
 
-  write('vim.o.' .. opt.full_name .. ' = ' .. render_option_default(opt.defaults))
+  write(
+    'vim.o.'
+      .. opt.full_name
+      .. ' = '
+      .. render_option_default(opt.defaults --[[@as vim.option_defaults]])
+  )
   if opt.abbreviation then
     write('vim.o.' .. opt.abbreviation .. ' = vim.o.' .. opt.full_name)
   end
@@ -885,7 +790,7 @@ local function render_option_doc(_f, opt, write)
 
   local otype = opt.type == 'boolean' and 'boolean' or opt.type
   if opt.defaults.doc or opt.defaults.if_true ~= nil or opt.defaults.meta ~= nil then
-    local v = render_option_default(opt.defaults, true)
+    local v = render_option_default(opt.defaults --[[@as vim.option_defaults]], true)
     local pad = string.rep('\t', math.max(1, math.ceil((24 - #name_str) / 8)))
     if opt.defaults.doc then
       local deflen = #fmt('%s%s%s (', name_str, pad, otype)
@@ -985,13 +890,13 @@ local CONFIG = {
       '\t\t  NVIM REFERENCE MANUAL',
       '',
       '',
-      'Vimscript functions\t*vimscript-functions* *builtin-functions* *builtin.txt*',
+      'Vimscript functions\t\t\t*vimscript-functions* *builtin.txt*',
       '',
       'For functions grouped by what they are used for see |function-list|.',
       '',
       '\t\t\t\t      Type |gO| to see the table of contents.',
       '==============================================================================',
-      '1. Details					*builtin-function-details*',
+      '1. Details					*vimscript-functions-details*',
       '',
     },
     footer = {

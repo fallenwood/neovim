@@ -147,7 +147,7 @@ local function filepath_to_healthcheck(path)
       -- */health/init.lua
       name = vim.fs.dirname(vim.fs.dirname(subpath))
     end
-    name = assert(name:gsub('/', '.')) --- @type string
+    name = assert(name:gsub('/', '.')) --[[@as string]]
 
     func = 'require("' .. name .. '.health").check()'
     filetype = 'l'
@@ -311,7 +311,7 @@ function M.error(msg, ...)
 end
 
 local path2name = function(path)
-  if path:match('%.lua$') then
+  if vim.fs.ext(path) == 'lua' then
     -- Lua: transform "../lua/vim/lsp/health.lua" into "vim.lsp"
 
     -- Get full path, make sure all slashes are '/'
@@ -371,6 +371,22 @@ local function get_summary()
   return s
 end
 
+---Emit progress messages
+---@param len integer
+---@return fun(status: 'success'|'running', idx: integer, fmt: string, ...: any): nil
+local function progress_report(len)
+  local progress = { kind = 'progress', source = 'vim.health', title = 'checkhealth' }
+
+  return function(status, idx, fmt, ...)
+    progress.status = status
+    progress.percent = status == 'success' and nil or math.floor(idx / len * 100)
+    -- percent=0 omits the reporting of percentage, so use 1% instead
+    -- progress.percent = progress.percent == 0 and 1 or progress.percent
+    progress.id = vim.api.nvim_echo({ { fmt:format(...) } }, false, progress)
+    vim.cmd.redraw()
+  end
+end
+
 --- Runs the specified healthchecks.
 --- Runs all discovered healthchecks if plugin_names is empty.
 ---
@@ -384,20 +400,18 @@ function M._check(mods, plugin_names)
   local emptybuf = vim.fn.bufnr('$') == 1 and vim.fn.getline(1) == '' and 1 == vim.fn.line('$')
 
   local bufnr ---@type integer
-  if
-    vim.g.health
-    and type(vim.g.health) == 'table'
-    and vim.tbl_get(vim.g.health, 'style') == 'float'
-  then
-    local max_height = math.floor(vim.o.lines * 0.8)
+  if vim.tbl_get(vim.g, 'health', 'style') == 'float' then
+    local available_lines = vim.o.lines - 12
+    local max_height = math.min(math.floor(vim.o.lines * 0.8), available_lines)
     local max_width = 80
     local float_winid
     bufnr, float_winid = vim.lsp.util.open_floating_preview({}, '', {
       height = max_height,
       width = max_width,
       offset_x = math.floor((vim.o.columns - max_width) / 2),
-      offset_y = math.floor((vim.o.lines - max_height) / 2) - 1,
+      offset_y = math.floor((available_lines - max_height) / 2),
       relative = 'editor',
+      close_events = {},
     })
     vim.api.nvim_set_current_win(float_winid)
     vim.bo[bufnr].modifiable = true
@@ -421,10 +435,13 @@ function M._check(mods, plugin_names)
     vim.fn.setline(1, 'ERROR: No healthchecks found.')
     return
   end
-  vim.cmd.redraw()
-  vim.print('Running healthchecks...')
 
+  local total_checks = #vim.tbl_keys(healthchecks)
+  local progress_msg = progress_report(total_checks)
+  local check_idx = 1
   for name, value in vim.spairs(healthchecks) do
+    progress_msg('running', check_idx, 'checking %s', name)
+    check_idx = check_idx + 1
     local func = value[1]
     local type = value[2]
     s_output = {}
@@ -474,21 +491,21 @@ function M._check(mods, plugin_names)
     s_output[#s_output + 1] = ''
     s_output = vim.list_extend(header, s_output)
     vim.fn.append(vim.fn.line('$'), s_output)
-    vim.cmd.redraw()
   end
 
-  -- Clear the 'Running healthchecks...' message.
-  vim.cmd.redraw()
-  vim.print('')
+  progress_msg('success', 0, 'checks done')
 
   -- Quit with 'q' inside healthcheck buffers.
   vim._with({ buf = bufnr }, function()
-    if vim.fn.maparg('q', 'n', false, false) == '' then
+    if
+      vim.tbl_get(vim.g, 'health', 'style') == 'float'
+      or vim.fn.maparg('q', 'n', false, false) == ''
+    then
       vim.keymap.set('n', 'q', function()
         if not pcall(vim.cmd.close) then
           vim.cmd.bdelete()
         end
-      end, { buffer = bufnr, silent = true, noremap = true, nowait = true })
+      end, { buf = bufnr, silent = true, noremap = true, nowait = true })
     end
   end)
 

@@ -47,7 +47,7 @@ local function compute_hash(fullpath, bufnr)
     end
   else
     do
-      local f = io.open(fullpath, 'r')
+      local f = io.open(fullpath, 'rb')
       if not f then
         return nil, nil
       end
@@ -121,16 +121,18 @@ function M.read(path)
     return contents
   end
 
-  local dir_msg = ''
+  local msg2 = ' To enable it, choose (v)iew then run `:trust`:'
+  local choices = '&ignore\n&view\n&deny'
   if hash == 'directory' then
-    dir_msg = ' DIRECTORY trust is decided only by its name, not its contents.'
+    msg2 = ' DIRECTORY trust is decided only by name, not contents:'
+    choices = '&ignore\n&view\n&deny\n&allow'
   end
 
   -- File either does not exist in trust database or the hash does not match
   local ok, result = pcall(
     vim.fn.confirm,
-    string.format('%s is not trusted.%s', fullpath, dir_msg),
-    '&ignore\n&view\n&deny\n&allow',
+    string.format('exrc: Found untrusted code.%s\n%s', msg2, fullpath),
+    choices,
     1
   )
 
@@ -147,7 +149,7 @@ function M.read(path)
     -- Deny
     trust[fullpath] = '!'
     contents = nil
-  elseif result == 4 then
+  elseif hash == 'directory' and result == 4 then
     -- Allow
     trust[fullpath] = hash
   end
@@ -160,13 +162,13 @@ end
 --- @class vim.trust.opts
 --- @inlinedoc
 ---
---- - `'allow'` to add a file to the trust database and trust it,
---- - `'deny'` to add a file to the trust database and deny it,
---- - `'remove'` to remove file from the trust database
+--- One of:
+---   - `'allow'` to add a file to the trust database and trust it,
+---   - `'deny'` to add a file to the trust database and deny it,
+---   - `'remove'` to remove file from the trust database
 --- @field action 'allow'|'deny'|'remove'
 ---
 --- Path to a file to update. Mutually exclusive with {bufnr}.
---- Cannot be used when {action} is "allow".
 --- @field path? string
 --- Buffer number to update. Mutually exclusive with {path}.
 --- @field bufnr? integer
@@ -192,10 +194,6 @@ function M.trust(opts)
   local action = opts.action
 
   assert(not path or not bufnr, '"path" and "bufnr" are mutually exclusive')
-
-  if action == 'allow' then
-    assert(not path, '"path" is not valid when action is "allow"')
-  end
 
   local fullpath ---@type string?
   if path then

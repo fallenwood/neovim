@@ -31,6 +31,7 @@
 #include "nvim/edit.h"
 #include "nvim/errors.h"
 #include "nvim/eval.h"
+#include "nvim/eval/vars.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds2.h"
 #include "nvim/ex_docmd.h"
@@ -69,6 +70,7 @@
 #include "nvim/plines.h"
 #include "nvim/profile.h"
 #include "nvim/quickfix.h"
+#include "nvim/register.h"
 #include "nvim/search.h"
 #include "nvim/spell.h"
 #include "nvim/spell_defs.h"
@@ -80,6 +82,7 @@
 #include "nvim/strings.h"
 #include "nvim/syntax.h"
 #include "nvim/tag.h"
+#include "nvim/terminal.h"
 #include "nvim/textformat.h"
 #include "nvim/textobject.h"
 #include "nvim/types_defs.h"
@@ -112,9 +115,7 @@ typedef struct {
 
 static int VIsual_mode_orig = NUL;              // saved Visual mode
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "normal.c.generated.h"
-#endif
+#include "normal.c.generated.h"
 
 static const char e_changelist_is_empty[] = N_("E664: Changelist is empty");
 static const char e_cmdline_window_already_open[]
@@ -544,6 +545,7 @@ static void normal_prepare(NormalState *s)
   }
   may_trigger_modechanged();
 
+  s->set_prevcount = false;
   // When not finishing an operator and no register name typed, reset the count.
   if (!finish_op && !s->oa.regname) {
     s->ca.opcount = 0;
@@ -700,12 +702,10 @@ static void normal_redraw_mode_message(NormalState *s)
   setcursor();
   ui_cursor_shape();                  // show different cursor shape
   ui_flush();
-  if (!ui_has(kUIMessages) && (msg_scroll || emsg_on_display)) {
-    os_delay(1003, true);            // wait at least one second
+  if (msg_scroll || emsg_on_display) {
+    msg_delay(1003, true);    // wait extra second for scrolled or error message
   }
-  if (ui_has(kUIMessages)) {
-    os_delay(3003, false);           // wait up to three seconds
-  }
+  msg_delay(3003, false);    // wait three seconds before doing 'showmode'
   State = save_State;
 
   msg_scroll = false;
@@ -964,6 +964,8 @@ static bool normal_get_command_count(NormalState *s)
 
 static void normal_finish_command(NormalState *s)
 {
+  bool did_visual_op = false;
+
   if (s->command_finished) {
     goto normal_end;
   }
@@ -986,6 +988,10 @@ static void normal_finish_command(NormalState *s)
   // If an operation is pending, handle it.  But not for K_IGNORE or
   // K_MOUSEMOVE.
   if (s->ca.cmdchar != K_IGNORE && s->ca.cmdchar != K_MOUSEMOVE) {
+    did_visual_op = VIsual_active && s->oa.op_type != OP_NOP
+                    // For OP_COLON, do_pending_operator() stuffs ':' into
+                    // the read buffer, which isn't executed immediately.
+                    && s->oa.op_type != OP_COLON;
     do_pending_operator(&s->ca, s->old_col, false);
   }
 
@@ -1000,7 +1006,7 @@ normal_end:
 
   msg_nowait = false;
 
-  if (finish_op) {
+  if (finish_op || did_visual_op) {
     set_reg_var(get_default_register_name());
   }
 
@@ -1324,7 +1330,7 @@ static void normal_check_text_changed(NormalState *s)
 
 static void normal_check_buffer_modified(NormalState *s)
 {
-  // Trigger BufModified if b_modified changed
+  // Trigger BufModified if 'modified' changed.
   if (!finish_op && has_event(EVENT_BUFMODIFIEDSET)
       && curbuf->b_changed_invalid == true) {
     apply_autocmds(EVENT_BUFMODIFIEDSET, NULL, NULL, false, curbuf);
@@ -1437,6 +1443,8 @@ static int normal_check(VimState *state)
     skip_redraw = false;
     setcursor();
   } else if (do_redraw || stuff_empty()) {
+    terminal_check_refresh();
+
     // Ensure curwin->w_topline and curwin->w_leftcol are up to date
     // before triggering a WinScrolled autocommand.
     update_topline(curwin);
@@ -1609,12 +1617,7 @@ static bool find_is_eval_item(const char *const ptr, int *const colp, int *const
   return false;
 }
 
-/// Find the identifier under or to the right of the cursor.
-/// "find_type" can have one of three values:
-/// FIND_IDENT:   find an identifier (keyword)
-/// FIND_STRING:  find any non-white text
-/// FIND_IDENT + FIND_STRING: find any non-white text, identifier preferred.
-/// FIND_EVAL:  find text useful for C program debugging
+/// Finds the identifier under or to the right of the cursor, and stores it in `text`.
 ///
 /// There are three steps:
 /// 1. Search forward for the start of an identifier/text.  Doesn't move if
@@ -1625,15 +1628,25 @@ static bool find_is_eval_item(const char *const ptr, int *const colp, int *const
 /// 3. Search forward to the end of this identifier/text.
 ///    When FIND_IDENT isn't defined, we backup until a blank.
 ///
-/// @return  the length of the text, or zero if no text is found.
-///
-/// If text is found, a pointer to the text is put in "*text".  This
-/// points into the current buffer line and is not always NUL terminated.
-size_t find_ident_under_cursor(char **text, int find_type)
+/// @param text If text is found, a pointer to the text is put in `*text`. This points into the
+/// current buffer line and is not always NUL terminated.
+/// @param find_type One of three values:
+///        - FIND_IDENT:   find an identifier (keyword)
+///        - FIND_STRING:  find any non-white text
+///        - FIND_IDENT + FIND_STRING: find any non-white text, identifier preferred.
+///        - FIND_EVAL:  find text useful for C program debugging
+/// @param offset  If not NULL, gets cursor position relative to start of `text`.
+/// @return  Text length, or zero if no text is found.
+size_t find_ident_under_cursor(char **text, int find_type, int *offset)
   FUNC_ATTR_NONNULL_ARG(1)
 {
-  return find_ident_at_pos(curwin, curwin->w_cursor.lnum,
-                           curwin->w_cursor.col, text, NULL, find_type);
+  int textcol = 0;
+  size_t len = find_ident_at_pos(curwin, curwin->w_cursor.lnum,
+                                 curwin->w_cursor.col, text, offset ? &textcol : NULL, find_type);
+  if (offset) {
+    *offset = curwin->w_cursor.col - textcol;
+  }
+  return len;
 }
 
 /// Like find_ident_under_cursor(), but for any window and any position.
@@ -1965,7 +1978,7 @@ bool add_to_showcmd(int c)
     0
   };
 
-  if (!p_sc || msg_silent != 0) {
+  if (!p_sc || msg_silent != 0 || ex_normal_busy) {
     return false;
   }
 
@@ -2303,7 +2316,7 @@ static void nv_gd(oparg_T *oap, int nchar, int thisblock)
 {
   size_t len;
   char *ptr;
-  if ((len = find_ident_under_cursor(&ptr, FIND_IDENT)) == 0
+  if ((len = find_ident_under_cursor(&ptr, FIND_IDENT, NULL)) == 0
       || !find_decl(ptr, len, nchar == 'd', thisblock, SEARCH_START)) {
     clearopbeep(oap);
     return;
@@ -2556,7 +2569,7 @@ bool nv_screengo(oparg_T *oap, int dir, int dist, bool skip_conceal)
           linelen = linetabsize(curwin, curwin->w_cursor.lnum);
           if (linelen > width1) {
             int w = (((linelen - width1 - 1) / width2) + 1) * width2;
-            assert(curwin->w_curswant <= INT_MAX - w);
+            assert(w <= 0 || curwin->w_curswant <= INT_MAX - w);
             curwin->w_curswant += w;
           }
         }
@@ -2737,7 +2750,7 @@ static int nv_zg_zw(cmdarg_T *cap, int nchar)
     curwin->w_cursor = pos;
   }
 
-  if (ptr == NULL && (len = find_ident_under_cursor(&ptr, FIND_IDENT)) == 0) {
+  if (ptr == NULL && (len = find_ident_under_cursor(&ptr, FIND_IDENT, NULL)) == 0) {
     return FAIL;
   }
   assert(len <= INT_MAX);
@@ -2792,7 +2805,7 @@ static void nv_zet(cmdarg_T *cap)
   case '+':
     if (cap->count0 == 0) {
       // No count given: put cursor at the line below screen
-      validate_botline(curwin);               // make sure w_botline is valid
+      validate_botline_win(curwin);  // make sure w_botline is valid
       curwin->w_cursor.lnum = MIN(curwin->w_botline, curbuf->b_ml.ml_line_count);
     }
     FALLTHROUGH;
@@ -3178,18 +3191,19 @@ static void nv_colon(cmdarg_T *cap)
     }
   }
 
-  // When typing, don't type below an old message
   if (KeyTyped) {
-    compute_cmdrow();
+    msg_ext_set_trigger("typed_cmd");  // distinguish msg_show emitted for typed cmd
+    compute_cmdrow();                  // when typing, don't type below an old message
   }
 
   if (is_lua) {
-    cmd_result = map_execute_lua(true);
+    cmd_result = map_execute_lua(true, false);
   } else {
     // get a command line and execute it
     cmd_result = do_cmdline(NULL, is_cmdkey ? getcmdkeycmd : getexline, NULL,
                             cap->oap->op_type != OP_NOP ? DOCMD_KEEPLINE : 0);
   }
+  msg_ext_set_trigger("");
 
   if (cmd_result == false) {
     // The Ex command failed, do not execute the operator.
@@ -3304,15 +3318,14 @@ void do_nv_ident(int c1, int c2)
   nv_ident(&ca);
 }
 
-/// 'K' normal-mode command. Get the command to lookup the keyword under the
-/// cursor.
+/// Sets `buf` to the Ex command which will perform the "K" normal-mode command.
 static size_t nv_K_getcmd(cmdarg_T *cap, char *kp, bool kp_help, bool kp_ex, char **ptr_arg,
                           size_t n, char *buf, size_t bufsize, size_t *buflen)
 {
   if (kp_help) {
-    // in the help buffer
-    STRCPY(buf, "he! ");
-    *buflen = STRLEN_LITERAL("he! ");
+    // :help or :help!
+    STRCPY(buf, "help! ");
+    *buflen = STRLEN_LITERAL("help! ");
     return n;
   }
 
@@ -3394,20 +3407,23 @@ static void nv_ident(cmdarg_T *cap)
   }
 
   // The "]", "CTRL-]" and "K" commands accept an argument in Visual mode.
+  bool visual_sel = false;
   if (cmdchar == ']' || cmdchar == Ctrl_RSB || cmdchar == 'K') {
     if (VIsual_active && get_visual_text(cap, &ptr, &n) == false) {
       return;
     }
+    visual_sel = (ptr != NULL);
     if (checkclearopq(cap->oap)) {
       return;
     }
   }
 
+  int ident_offset = 0;
   if (ptr == NULL && (n = find_ident_under_cursor(&ptr,
                                                   ((cmdchar == '*'
                                                     || cmdchar == '#')
                                                    ? FIND_IDENT|FIND_STRING
-                                                   : FIND_IDENT))) == 0) {
+                                                   : FIND_IDENT), &ident_offset)) == 0) {
     clearop(cap->oap);
     return;
   }
@@ -3416,8 +3432,9 @@ static void nv_ident(cmdarg_T *cap)
   // double the length of the word.  p_kp / curbuf->b_p_kp could be added
   // and some numbers.
   char *kp = *curbuf->b_p_kp == NUL ? p_kp : curbuf->b_p_kp;  // 'keywordprg'
-  bool kp_help = (*kp == NUL || strcmp(kp, ":he") == 0 || strcmp(kp, ":help") == 0);
-  if (kp_help && *skipwhite(ptr) == NUL) {
+  bool kp_helpbang = strequal(kp, ":help!");
+  bool kp_help = kp_helpbang || *kp == NUL || strequal(kp, ":he") || strequal(kp, ":help");
+  if (kp_help && !kp_helpbang && *skipwhite(ptr) == NUL) {
     emsg(_(e_noident));   // found white space only
     return;
   }
@@ -3453,30 +3470,35 @@ static void nv_ident(cmdarg_T *cap)
 
   case ']':
     tag_cmd = true;
-    STRCPY(buf, "ts ");
-    buflen = STRLEN_LITERAL("ts ");
+    STRCPY(buf, "tselect ");
+    buflen = STRLEN_LITERAL("tselect ");
     break;
 
   default:
     tag_cmd = true;
     if (curbuf->b_help) {
-      STRCPY(buf, "he! ");
-      buflen = STRLEN_LITERAL("he! ");
+      STRCPY(buf, "help! ");
+      buflen = STRLEN_LITERAL("help! ");
     } else {
       if (g_cmd) {
-        STRCPY(buf, "tj ");
-        buflen = STRLEN_LITERAL("tj ");
+        STRCPY(buf, "tjump ");
+        buflen = STRLEN_LITERAL("tjump ");
       } else if (cap->count0 == 0) {
-        STRCPY(buf, "ta ");
-        buflen = STRLEN_LITERAL("ta ");
+        STRCPY(buf, "tag ");
+        buflen = STRLEN_LITERAL("tag ");
       } else {
-        buflen = (size_t)snprintf(buf, bufsize, ":%" PRId64 "ta ", (int64_t)cap->count0);
+        buflen = (size_t)snprintf(buf, bufsize, ":%" PRId64 "tag ", (int64_t)cap->count0);
       }
     }
   }
 
-  // Now grab the chars in the identifier
-  if (cmdchar == 'K' && !kp_help) {
+  // Get the identifier at cursor/selection and append to `buf` (to get ":foo <identifier").
+  if (cmdchar == 'K' && kp_helpbang && !visual_sel) {
+    // Special case: ":help!": Don't get the identifier, ex_help will get cWORD at cursor.
+    // nv_K_getcmd already set `buf="help!"` so we don't need to do anything here.
+    STRCPY(buf, "help!");
+    buflen = STRLEN_LITERAL("help!");
+  } else if (cmdchar == 'K' && !kp_help) {
     ptr = xstrnsave(ptr, n);
     if (kp_ex) {
       // Escape the argument properly for an Ex command
@@ -3510,8 +3532,8 @@ static void nv_ident(cmdarg_T *cap)
     }
 
     p = buf + buflen;
+    // Escape various chars with a backslash "\".
     while (n-- > 0) {
-      // put a backslash before \ and some others
       if (vim_strchr(aux_ptr, (uint8_t)(*ptr)) != NULL) {
         *p++ = '\\';
       }
@@ -3614,7 +3636,7 @@ static void nv_scroll(cmdarg_T *cap)
   setpcmark();
 
   if (cap->cmdchar == 'L') {
-    validate_botline(curwin);          // make sure curwin->w_botline is valid
+    validate_botline_win(curwin);  // make sure curwin->w_botline is valid
     curwin->w_cursor.lnum = curwin->w_botline - 1;
     if (cap->count1 - 1 >= curwin->w_cursor.lnum) {
       curwin->w_cursor.lnum = 1;
@@ -3637,7 +3659,7 @@ static void nv_scroll(cmdarg_T *cap)
       int used = 0;
       // Don't count filler lines above the window.
       used -= win_get_fill(curwin, curwin->w_topline) - curwin->w_topfill;
-      validate_botline(curwin);  // make sure w_empty_rows is valid
+      validate_botline_win(curwin);  // make sure w_empty_rows is valid
       int half = (curwin->w_view_height - curwin->w_empty_rows + 1) / 2;
       for (n = 0; curwin->w_topline + n < curbuf->b_ml.ml_line_count; n++) {
         // Count half the number of filler lines to be "below this
@@ -4219,7 +4241,7 @@ static void nv_brackets(cmdarg_T *cap)
     char *ptr;
     size_t len;
 
-    if ((len = find_ident_under_cursor(&ptr, FIND_IDENT)) == 0) {
+    if ((len = find_ident_under_cursor(&ptr, FIND_IDENT, NULL)) == 0) {
       clearop(cap->oap);
     } else {
       // Make a copy, if the line was changed it will be freed.
@@ -4237,7 +4259,7 @@ static void nv_brackets(cmdarg_T *cap)
                             ? curwin->w_cursor.lnum + 1
                             : 1),
                            MAXLNUM,
-                           false);
+                           false, false);
       xfree(ptr);
       curwin->w_set_curswant = true;
     }
@@ -5346,7 +5368,7 @@ static void nv_g_dollar_cmd(cmdarg_T *cap)
   if (flag) {
     do {
       i = gchar_cursor();
-    } while (ascii_iswhite(i) && oneleft() == OK);
+    } while (ascii_iswhite_or_nul(i) && oneleft() == OK);
     curwin->w_valid &= ~VALID_WCOL;
   }
 }
@@ -5849,7 +5871,7 @@ static void set_op_var(int optype)
     opchars[1] = (char)opchar1;
 
     opchars[2] = NUL;
-    set_vim_var_string(VV_OP, opchars, -1);
+    set_vim_var_string(VV_OP, opchars, 2);
   }
 }
 
@@ -6477,7 +6499,7 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
 
   if (bt_prompt(curbuf) && !prompt_curpos_editable()) {
     if (curwin->w_cursor.lnum == curbuf->b_prompt_start.mark.lnum) {
-      curwin->w_cursor.col = (int)strlen(prompt_text());
+      curwin->w_cursor.col = curbuf->b_prompt_start.mark.col;
       // Since we've shifted the cursor to the first editable char. We want to
       // paste before that.
       cap->cmdchar = 'P';
@@ -6591,7 +6613,7 @@ static void nv_put_opt(cmdarg_T *cap, bool fix_indent)
   // When all lines were selected and deleted do_put() leaves an empty
   // line that needs to be deleted now.
   if (empty && *ml_get(curbuf->b_ml.ml_line_count) == NUL) {
-    ml_delete(curbuf->b_ml.ml_line_count, true);
+    ml_delete_flags(curbuf->b_ml.ml_line_count, ML_DEL_MESSAGE);
     deleted_lines(curbuf->b_ml.ml_line_count + 1, 1);
 
     // If the cursor was in that line, move it to the end of the last

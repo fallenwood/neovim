@@ -27,9 +27,7 @@
 #include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "cursor.c.generated.h"
-#endif
+#include "cursor.c.generated.h"
 
 /// @return  the screen position of the cursor.
 int getviscol(void)
@@ -64,8 +62,7 @@ int coladvance_force(colnr_T wcol)
     curwin->w_valid &= ~VALID_VIRTCOL;
   } else {
     // Virtcol is valid
-    curwin->w_valid |= VALID_VIRTCOL;
-    curwin->w_virtcol = wcol;
+    set_valid_virtcol(curwin, wcol);
   }
   return rc;
 }
@@ -85,8 +82,7 @@ int coladvance(win_T *wp, colnr_T wcol)
     wp->w_valid &= ~VALID_VIRTCOL;
   } else if (*(ml_get_buf(wp->w_buffer, wp->w_cursor.lnum) + wp->w_cursor.col) != TAB) {
     // Virtcol is valid when not on a TAB
-    wp->w_valid |= VALID_VIRTCOL;
-    wp->w_virtcol = wcol;
+    set_valid_virtcol(curwin, wcol);
   }
   return rc;
 }
@@ -312,7 +308,7 @@ void check_pos(buf_T *buf, pos_T *pos)
   }
 }
 
-/// Make sure curwin->w_cursor.lnum is valid.
+/// Make sure win->w_cursor.lnum is valid.
 void check_cursor_lnum(win_T *win)
 {
   buf_T *buf = win->w_buffer;
@@ -478,6 +474,19 @@ bool set_leftcol(colnr_T leftcol)
 int gchar_cursor(void)
 {
   return utf_ptr2char(get_cursor_pos_ptr());
+}
+
+/// Return the character immediately before the cursor.
+int char_before_cursor(void)
+{
+  if (curwin->w_cursor.col == 0) {
+    return -1;
+  }
+
+  char *line = get_cursor_line_ptr();
+  char *p = line + curwin->w_cursor.col;
+  int prev_len = utf_head_off(line, p - 1) + 1;
+  return utf_ptr2char(p - prev_len);
 }
 
 /// Write a character at the current cursor position.
